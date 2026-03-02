@@ -12,7 +12,7 @@ A professional Streamlit dashboard covering **all NSE/BSE listed companies, MCX 
 | **Asset Classes** | NSE/BSE Stocks, MCX Commodities (Gold, Silver, Crude etc.), Top 10 Crypto |
 | **Exchange Toggle** | Switch any stock between NSE (.NS) and BSE (.BO) with one click |
 | **Price Charts** | Candlestick + MA20 + MA50 + Bollinger Bands + MACD |
-| **Sentiment Engine** | VADER + FinBERT (finance-specific AI) combined score |
+| **Sentiment Engine** | VADER |
 | **News Sources** | Economic Times, MoneyControl, LiveMint, Reuters, Yahoo Finance |
 | **Comparison Tool** | Normalised performance chart of any two assets side by side |
 | **Auto-Refresh** | Prices update every 60s, news every 5 minutes — silently in background |
@@ -31,7 +31,7 @@ cd path/to/market-sentiment
 
 ### Step 3 — Install dependencies
 
-**Option A — Full install (with FinBERT AI model, recommended for CV):**
+**Option A — Full install 
 ```
 pip install -r requirements.txt
 ```
@@ -62,14 +62,9 @@ If the NSE server is unreachable (e.g. no internet), the app falls back to a har
 ### VADER
 Rule-based model. Uses a pre-built dictionary of words with sentiment weights. Fast, no internet needed. Good for general text.
 
-### FinBERT
-A version of BERT (Google's language AI) fine-tuned on financial news and earnings transcripts. More accurate for finance — understands context like "failed to meet expectations" as negative even if "failed" alone seems ambiguous.
 
-### Combined Score
+###  Score
 ```
-combined = VADER x 0.4 + FinBERT x 0.6
-```
-FinBERT is weighted higher because it's more domain-specific.
 
 | Score | Label |
 |---|---|
