@@ -1140,7 +1140,7 @@ if not news_df.empty:
     with col_right:
         st.markdown("#### 📈 Sentiment Trend (Latest Articles)")
         trend_df = news_df.copy().reset_index(drop=True)
-        trend_df["article_index"] = range(1, len(trend_df) + 1)
+        trend_df["article_index"] = range(1, len(trend_df)+1)
                            
 
         fig_trend = go.Figure()
