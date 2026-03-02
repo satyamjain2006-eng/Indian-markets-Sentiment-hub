@@ -113,30 +113,92 @@ def load_indian_companies() -> pd.DataFrame:
         return df.dropna().reset_index(drop=True)
     except Exception:
         seed = [
-            ("RELIANCE","Reliance Industries"),("TCS","Tata Consultancy Services"),
-            ("HDFCBANK","HDFC Bank"),("INFY","Infosys"),("ICICIBANK","ICICI Bank"),
-            ("WIPRO","Wipro"),("LT","Larsen & Toubro"),("BAJFINANCE","Bajaj Finance"),
-            ("HINDUNILVR","Hindustan Unilever"),("KOTAKBANK","Kotak Mahindra Bank"),
-            ("SBIN","State Bank Of India"),("MARUTI","Maruti Suzuki"),
-            ("ASIANPAINT","Asian Paints"),("TITAN","Titan Company"),
-            ("ULTRACEMCO","Ultratech Cement"),("ADANIPORTS","Adani Ports"),
-            ("POWERGRID","Power Grid Corp"),("NTPC","NTPC"),
+            # ── Reliance ──────────────────────────────────────────────
+            ("RELIANCE","Reliance Industries"),
+            # ── TCS / IT ──────────────────────────────────────────────
+            ("TCS","Tata Consultancy Services"),("INFY","Infosys"),
+            ("WIPRO","Wipro"),("HCLTECH","HCL Technologies"),
+            ("TECHM","Tech Mahindra"),("LTIM","LTIMindtree"),
+            ("MPHASIS","Mphasis"),("PERSISTENT","Persistent Systems"),
+            ("COFORGE","Coforge"),("OFSS","Oracle Financial Services"),
+            # ── Adani Group ───────────────────────────────────────────
+            ("ADANIENT","Adani Enterprises"),
+            ("ADANIPORTS","Adani Ports"),
+            ("ADANIPOWER","Adani Power"),
+            ("ADANIGREEN","Adani Green Energy"),
+            ("ADANITRANS","Adani Transmission"),
+            ("ADANITOTALGAZ","Adani Total Gas"),
+            ("ADANIENSOL","Adani Energy Solutions"),
+            ("AWL","Adani Wilmar"),
+            ("NDTV","NDTV"),
+            # ── Tata Group ────────────────────────────────────────────
+            ("TATAMOTORS","Tata Motors"),("TATASTEEL","Tata Steel"),
+            ("TATACONSUM","Tata Consumer Products"),
+            ("TATAPOWER","Tata Power"),("TATACOMM","Tata Communications"),
+            ("TATACHEM","Tata Chemicals"),("TATAELXSI","Tata Elxsi"),
+            ("TIINDIA","Tata Investment Corp"),
+            # ── Banking ───────────────────────────────────────────────
+            ("HDFCBANK","HDFC Bank"),("ICICIBANK","ICICI Bank"),
+            ("KOTAKBANK","Kotak Mahindra Bank"),("SBIN","State Bank Of India"),
+            ("AXISBANK","Axis Bank"),("INDUSINDBK","IndusInd Bank"),
+            ("BANDHANBNK","Bandhan Bank"),("FEDERALBNK","Federal Bank"),
+            ("IDFCFIRSTB","IDFC First Bank"),("PNB","Punjab National Bank"),
+            ("BANKBARODA","Bank Of Baroda"),("CANBK","Canara Bank"),
+            ("UNIONBANK","Union Bank Of India"),("INDIANB","Indian Bank"),
+            # ── HDFC Group ────────────────────────────────────────────
+            ("HDFCLIFE","HDFC Life Insurance"),("HDFCAMC","HDFC AMC"),
+            # ── Finance / NBFC ────────────────────────────────────────
+            ("BAJFINANCE","Bajaj Finance"),("BAJAJFINSV","Bajaj Finserv"),
+            ("MUTHOOTFIN","Muthoot Finance"),("CHOLAFIN","Cholamandalam Finance"),
+            ("MANAPPURAM","Manappuram Finance"),("LICHSGFIN","LIC Housing Finance"),
+            # ── Auto ──────────────────────────────────────────────────
+            ("MARUTI","Maruti Suzuki"),("BAJAJ-AUTO","Bajaj Auto"),
+            ("HEROMOTOCO","Hero Motocorp"),("EICHERMOT","Eicher Motors"),
+            ("MM","Mahindra & Mahindra"),("ASHOKLEY","Ashok Leyland"),
+            ("TVSMOTOR","TVS Motor"),("MOTHERSON","Samvardhana Motherson"),
+            ("BHARATFORG","Bharat Forge"),("BOSCHLTD","Bosch"),
+            # ── FMCG ──────────────────────────────────────────────────
+            ("HINDUNILVR","Hindustan Unilever"),("ITC","ITC"),
+            ("NESTLEIND","Nestle India"),("BRITANNIA","Britannia Industries"),
+            ("TATACONSUM","Tata Consumer Products"),("GODREJCP","Godrej Consumer"),
+            ("DABUR","Dabur India"),("MARICO","Marico"),("COLPAL","Colgate Palmolive"),
+            ("EMAMILTD","Emami"),
+            # ── Pharma ────────────────────────────────────────────────
             ("SUNPHARMA","Sun Pharmaceutical"),("DRREDDY","Dr Reddys Laboratories"),
-            ("MM","Mahindra & Mahindra"),("BAJAJ-AUTO","Bajaj Auto"),
-            ("NESTLEIND","Nestle India"),("ITC","ITC"),("AXISBANK","Axis Bank"),
-            ("TECHM","Tech Mahindra"),("HCLTECH","HCL Technologies"),
-            ("ONGC","Oil & Natural Gas Corp"),("COALINDIA","Coal India"),
-            ("BHARTIARTL","Bharti Airtel"),("TATAMOTORS","Tata Motors"),
-            ("TATASTEEL","Tata Steel"),("JSWSTEEL","JSW Steel"),
-            ("HINDALCO","Hindalco Industries"),("INDUSINDBK","IndusInd Bank"),
             ("CIPLA","Cipla"),("DIVISLAB","Divis Laboratories"),
-            ("EICHERMOT","Eicher Motors"),("HEROMOTOCO","Hero Motocorp"),
-            ("APOLLOHOSP","Apollo Hospitals"),("BRITANNIA","Britannia Industries"),
-            ("GRASIM","Grasim Industries"),("BPCL","Bharat Petroleum"),
-            ("IOC","Indian Oil Corp"),("TATACONSUM","Tata Consumer Products"),
-            ("UPL","UPL"),("SHREECEM","Shree Cement"),
+            ("BIOCON","Biocon"),("LUPIN","Lupin"),("AUROPHARMA","Aurobindo Pharma"),
+            ("TORNTPHARM","Torrent Pharmaceuticals"),("ALKEM","Alkem Laboratories"),
+            # ── Infrastructure / Energy ───────────────────────────────
+            ("LT","Larsen & Toubro"),("POWERGRID","Power Grid Corp"),
+            ("NTPC","NTPC"),("ONGC","Oil & Natural Gas Corp"),
+            ("COALINDIA","Coal India"),("BPCL","Bharat Petroleum"),
+            ("IOC","Indian Oil Corp"),("GAIL","GAIL India"),
+            ("HINDPETRO","Hindustan Petroleum"),("OIL","Oil India"),
+            # ── Cement / Materials ────────────────────────────────────
+            ("ULTRACEMCO","Ultratech Cement"),("SHREECEM","Shree Cement"),
+            ("GRASIM","Grasim Industries"),("AMBUJACEM","Ambuja Cements"),
+            ("ACC","ACC"),("JSWSTEEL","JSW Steel"),("TATASTEEL","Tata Steel"),
+            ("HINDALCO","Hindalco Industries"),("SAIL","Steel Authority Of India"),
+            ("NMDC","NMDC"),("NATIONALUM","National Aluminium"),
+            # ── Telecom ───────────────────────────────────────────────
+            ("BHARTIARTL","Bharti Airtel"),("IDEA","Vodafone Idea"),
+            # ── Consumer / Retail ─────────────────────────────────────
+            ("ASIANPAINT","Asian Paints"),("TITAN","Titan Company"),
             ("PIDILITIND","Pidilite Industries"),("HAVELLS","Havells India"),
-            ("MUTHOOTFIN","Muthoot Finance"),
+            ("VOLTAS","Voltas"),("WHIRLPOOL","Whirlpool India"),
+            ("DMART","Avenue Supermarts"),("TRENT","Trent"),
+            # ── Healthcare ────────────────────────────────────────────
+            ("APOLLOHOSP","Apollo Hospitals"),("FORTIS","Fortis Healthcare"),
+            ("MAXHEALTH","Max Healthcare"),("METROPOLIS","Metropolis Healthcare"),
+            # ── Insurance ─────────────────────────────────────────────
+            ("SBILIFE","SBI Life Insurance"),("ICICIlombard","ICICI Lombard"),
+            ("LICI","Life Insurance Corporation"),
+            # ── Others ────────────────────────────────────────────────
+            ("INDIGO","Interglobe Aviation"),("ZOMATO","Zomato"),
+            ("NYKAA","FSN E-Commerce"),("PAYTM","One97 Communications"),
+            ("POLICYBZR","PB Fintech"),("IRCTC","Indian Railway Catering"),
+            ("IRFC","Indian Railway Finance"),("HAL","Hindustan Aeronautics"),
+            ("BEL","Bharat Electronics"),("MFSL","Max Financial Services"),
         ]
         df = pd.DataFrame(seed, columns=["symbol","name"])
         df["yf_ns"]    = df["symbol"] + ".NS"
