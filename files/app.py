@@ -360,16 +360,16 @@ with st.sidebar:
                         st.session_state.primary_ticker = row["yf_ns"]
                         st.session_state.primary_symbol = row["symbol"]
 
-        # Show currently selected
-        st.markdown(f"**Selected:** `{st.session_state.primary_name}`")
-        st.markdown(f"**Ticker:** `{st.session_state.primary_ticker}`")
-
-        # Exchange toggle — NSE or BSE
+        # Exchange toggle — NSE or BSE (applied BEFORE displaying ticker)
         exchange = st.radio("Exchange", ["NSE (.NS)", "BSE (.BO)"], horizontal=True)
         if exchange == "BSE (.BO)":
             st.session_state.primary_ticker = st.session_state.primary_symbol + ".BO"
         else:
             st.session_state.primary_ticker = st.session_state.primary_symbol + ".NS"
+
+        # Show currently selected (after exchange is applied)
+        st.markdown(f"**Selected:** `{st.session_state.primary_name}`")
+        st.markdown(f"**Ticker:** `{st.session_state.primary_ticker}`")
 
         primary_name   = st.session_state.primary_name
         primary_ticker = st.session_state.primary_ticker
