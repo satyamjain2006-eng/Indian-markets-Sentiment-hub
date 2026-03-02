@@ -650,21 +650,62 @@ def search_companies(query: str, df: pd.DataFrame, top_n: int = 12) -> pd.DataFr
 
 
 # ── RSS News Sources ──────────────────────────────────────────────────────────
-# ── News via Google News RSS (most reliable on Streamlit Cloud) ───────────────
-# Google News RSS works from any server and always has fresh Indian market news.
-# We use multiple targeted queries per company to maximise coverage.
+# ── News Sources ─────────────────────────────────────────────────────────────
+# We combine:
+# 1. Google News RSS — always works on Streamlit Cloud, targeted per company
+# 2. Indian news sites via rss.app proxy — free proxy that fetches ET,
+#    MoneyControl, LiveMint on our behalf, bypassing Streamlit Cloud restrictions
 def get_rss_urls(keyword: str, symbol: str) -> dict:
     """
-    Returns a dict of source_name -> RSS URL for the given keyword/symbol.
-    Google News RSS format: https://news.google.com/rss/search?q=QUERY&hl=en-IN&gl=IN&ceid=IN:en
-    This is publicly accessible from Streamlit Cloud.
+    Returns all RSS URLs to fetch for a given company.
+    Combines Google News (targeted search) + Indian news via proxy.
     """
-    base = "https://news.google.com/rss/search?hl=en-IN&gl=IN&ceid=IN:en&q="
-    return {
-        f"Google News ({keyword})":    base + keyword.replace(" ", "+") + "+stock",
-        f"Google News ({symbol})":     base + symbol + "+NSE+stock",
-        f"Google News (market)":       base + keyword.replace(" ", "+") + "+share+price",
+    # Google News — targeted search queries for this specific company
+    gn_base = "https://news.google.com/rss/search?hl=en-IN&gl=IN&ceid=IN:en&q="
+    urls = {
+        f"Google News":         gn_base + keyword.replace(" ", "+") + "+stock+India",
+        f"Google News (NSE)":   gn_base + symbol + "+NSE+share+price",
+        f"Google News (news)":  gn_base + keyword.replace(" ", "+") + "+quarterly+results",
     }
+
+    # Indian news sites via rss2json API (free, no key needed for low usage)
+    # Fetches the actual ET/MoneyControl feeds server-side and returns JSON
+    indian_feeds = {
+        "Economic Times":  "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
+        "MoneyControl":    "https://www.moneycontrol.com/rss/marketreports.xml",
+        "LiveMint":        "https://www.livemint.com/rss/markets",
+        "Reuters":         "https://feeds.reuters.com/reuters/businessNews",
+    }
+    proxy_base = "https://api.rss2json.com/v1/api.json?rss_url="
+    for name, feed_url in indian_feeds.items():
+        urls[name] = proxy_base + feed_url
+
+    return urls
+
+
+def parse_rss2json(url: str, source_name: str) -> list:
+    """
+    Fetches an rss2json proxied feed and returns a list of article dicts.
+    Falls back to empty list on any error.
+    """
+    try:
+        resp = requests.get(url, timeout=8)
+        data = resp.json()
+        if data.get("status") != "ok":
+            return []
+        articles = []
+        for item in data.get("items", [])[:20]:
+            title = item.get("title", "").strip()
+            if title:
+                articles.append({
+                    "source":    source_name,
+                    "title":     title,
+                    "published": item.get("pubDate", "")[:25],
+                    "link":      item.get("link", "#"),
+                })
+        return articles
+    except Exception:
+        return []
 
 # ── Keyword alias map ─────────────────────────────────────────────────────────
 # Maps full company names → short search keyword used to filter headlines.
@@ -765,44 +806,78 @@ def badge_class(label):
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_news(company_name: str) -> pd.DataFrame:
     """
-    Fetches news using Google News RSS — works reliably on Streamlit Cloud.
-    Queries multiple variations of the company name/symbol to maximise results.
+    Fetches news from two layers:
+    1. Google News RSS (direct feedparser) — always works, company-specific
+    2. Indian news sites (ET, MoneyControl, LiveMint, Reuters) via rss2json
+       proxy — bypasses Streamlit Cloud network restrictions
+    Deduplicates across sources and filters to relevant articles.
     """
     keyword = get_news_keyword(company_name)
     symbol  = st.session_state.get("primary_symbol", "")
     rss_urls = get_rss_urls(keyword, symbol)
 
+    # Build relevance terms — match any of these in headline
+    search_terms = {keyword.lower(), symbol.lower()}
+    for word in company_name.split():
+        if len(word) >= 4:
+            search_terms.add(word.lower())
+
+    def is_relevant(title: str) -> bool:
+        t = title.lower()
+        return any(term in t for term in search_terms)
+
     seen_titles = set()
-    articles = []
+    all_articles = []
+    indian_news_sources = {"Economic Times", "MoneyControl", "LiveMint", "Reuters"}
 
     for source, url in rss_urls.items():
         try:
-            feed = feedparser.parse(url)
-            for entry in feed.entries[:15]:
-                title = entry.get("title", "").strip()
-                # Google News sometimes appends source after " - ", clean it
-                if " - " in title:
-                    title, source_suffix = title.rsplit(" - ", 1)
-                    display_source = source_suffix
-                else:
+            # Indian news sources use rss2json proxy — parse as JSON
+            if source in indian_news_sources:
+                raw = parse_rss2json(url, source)
+                for art in raw:
+                    title = art["title"]
+                    if not title or title in seen_titles:
+                        continue
+                    seen_titles.add(title)
+                    art["keyword"]  = keyword
+                    art["relevant"] = is_relevant(title)
+                    all_articles.append(art)
+
+            # Google News — parse directly with feedparser
+            else:
+                feed = feedparser.parse(url)
+                for entry in feed.entries[:15]:
+                    title = entry.get("title", "").strip()
+                    # Google News appends "- Source Name" at end — split it off
                     display_source = source
-                if not title or title in seen_titles:
-                    continue
-                seen_titles.add(title)
-                articles.append({
-                    "source":    display_source,
-                    "title":     title,
-                    "keyword":   keyword,
-                    "published": entry.get("published", entry.get("updated", ""))[:25],
-                    "link":      entry.get("link", "#"),
-                })
+                    if " - " in title:
+                        title, display_source = title.rsplit(" - ", 1)
+                        title = title.strip()
+                    if not title or title in seen_titles:
+                        continue
+                    seen_titles.add(title)
+                    all_articles.append({
+                        "source":    display_source,
+                        "title":     title,
+                        "keyword":   keyword,
+                        "relevant":  is_relevant(title),
+                        "published": entry.get("published", entry.get("updated", ""))[:25],
+                        "link":      entry.get("link", "#"),
+                    })
         except Exception:
             continue
 
-    if not articles:
+    if not all_articles:
         return pd.DataFrame()
 
-    df = pd.DataFrame(articles).reset_index(drop=True)
+    df = pd.DataFrame(all_articles)
+
+    # Prefer relevant articles — fall back to all if fewer than 5
+    relevant = df[df["relevant"] == True]
+    df = relevant if len(relevant) >= 5 else df
+    df = df.drop(columns=["relevant"], errors="ignore").reset_index(drop=True)
+
     df["compound"] = df["title"].apply(combined_score)
     df["vader"]    = df["title"].apply(vader_score)
     df["finbert"]  = df["title"].apply(finbert_score) if FINBERT_AVAILABLE else 0.0
@@ -1008,7 +1083,7 @@ with st.sidebar:
     st.markdown("---")
     st.caption(f"FinBERT: {'✅ Active' if FINBERT_AVAILABLE else '⚠️ VADER only'}")
     st.caption(f"Companies loaded: {len(all_companies):,}")
-    st.caption("News: Google News RSS (India)")
+    st.caption("News: Google News · ET · MoneyControl · LiveMint · Reuters")
 
 
 # ── Header ────────────────────────────────────────────────────────────────────
