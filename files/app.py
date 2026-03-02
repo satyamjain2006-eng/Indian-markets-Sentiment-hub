@@ -145,21 +145,44 @@ def load_indian_companies() -> pd.DataFrame:
         return df
 
 
-def search_companies(query: str, df: pd.DataFrame, top_n: int = 8) -> pd.DataFrame:
+def search_companies(query: str, df: pd.DataFrame, top_n: int = 12) -> pd.DataFrame:
     """
-    Returns companies whose name OR symbol contains the query.
-    Results that START with the query come first.
+    Smarter search that handles partial words anywhere in the name.
+    Typing "adani" returns ALL Adani group companies.
+    Typing "enterprises" returns Adani Enterprises, etc.
+
+    Ranking priority:
+      1. Symbol exact match (e.g. "TCS" -> TCS first)
+      2. Name starts with query (e.g. "adani" -> Adani Enterprises, Adani Ports...)
+      3. Any word in name starts with query (e.g. "enterp" -> Adani Enterprises)
+      4. Query appears anywhere in name (e.g. "enterprises" -> full substring match)
     """
     q = query.strip().lower()
     if len(q) < 2:
         return pd.DataFrame()
-    mask_start   = (df["name"].str.lower().str.startswith(q) |
-                    df["symbol"].str.lower().str.startswith(q))
-    mask_contain = (df["name"].str.lower().str.contains(q, na=False) |
-                    df["symbol"].str.lower().str.contains(q, na=False))
-    starts   = df[mask_start]
-    contains = df[mask_contain & ~mask_start]
-    return pd.concat([starts, contains]).head(top_n).reset_index(drop=True)
+
+    name_lower   = df["name"].str.lower()
+    symbol_lower = df["symbol"].str.lower()
+
+    # Priority 1: symbol exact match
+    p1 = df[symbol_lower == q]
+
+    # Priority 2: full name starts with query
+    p2 = df[name_lower.str.startswith(q) & ~df.index.isin(p1.index)]
+
+    # Priority 3: any individual word in the name starts with query
+    # e.g. query="enterp" matches "Adani Enterprises" because "enterprises" starts with "enterp"
+    def any_word_starts(name):
+        return any(word.startswith(q) for word in name.split())
+    p3_mask = name_lower.apply(any_word_starts)
+    p3 = df[p3_mask & ~df.index.isin(p1.index) & ~df.index.isin(p2.index)]
+
+    # Priority 4: query appears anywhere in name or symbol (full substring)
+    p4_mask = (name_lower.str.contains(q, na=False) |
+               symbol_lower.str.contains(q, na=False))
+    p4 = df[p4_mask & ~df.index.isin(p1.index) & ~df.index.isin(p2.index) & ~df.index.isin(p3.index)]
+
+    return pd.concat([p1, p2, p3, p4]).head(top_n).reset_index(drop=True)
 
 
 # ── RSS News Sources ──────────────────────────────────────────────────────────
@@ -170,6 +193,67 @@ RSS_SOURCES = {
     "Yahoo Finance":  "https://finance.yahoo.com/rss/headline?s={query}",
     "Reuters":        "https://feeds.reuters.com/reuters/businessNews",
 }
+
+# ── Keyword alias map ─────────────────────────────────────────────────────────
+# Maps full company names → short search keyword used to filter headlines.
+# Without this, "Adani Enterprises" would miss articles that say "Adani Group".
+# Add more entries here as needed.
+NEWS_KEYWORDS = {
+    # Adani Group
+    "Adani Enterprises":         "Adani",
+    "Adani Ports":               "Adani",
+    "Adani Power":               "Adani",
+    "Adani Green Energy":        "Adani",
+    "Adani Total Gas":           "Adani",
+    "Adani Wilmar":              "Adani",
+    # Tata Group
+    "Tata Consultancy Services": "TCS",
+    "Tata Motors":               "Tata Motors",
+    "Tata Steel":                "Tata Steel",
+    "Tata Consumer Products":    "Tata Consumer",
+    "Tata Power":                "Tata Power",
+    "Tata Communications":       "Tata Comm",
+    # Reliance
+    "Reliance Industries":       "Reliance",
+    # HDFC
+    "Hdfc Bank":                 "HDFC Bank",
+    "Hdfc Life Insurance":       "HDFC Life",
+    "Hdfc Asset Management":     "HDFC AMC",
+    # Others with common short names
+    "Larsen & Toubro":           "L&T",
+    "Oil & Natural Gas Corp":    "ONGC",
+    "State Bank Of India":       "SBI",
+    "Bharat Petroleum":          "BPCL",
+    "Indian Oil Corp":           "Indian Oil",
+    "Hindustan Unilever":        "HUL",
+    "Bajaj Finance":             "Bajaj Finance",
+    "Bajaj Auto":                "Bajaj Auto",
+    "Mahindra & Mahindra":       "Mahindra",
+    "Bharti Airtel":             "Airtel",
+    "Ultratech Cement":          "Ultratech",
+    "Dr Reddys Laboratories":    "Dr Reddy",
+    "Sun Pharmaceutical":        "Sun Pharma",
+    "Apollo Hospitals":          "Apollo",
+    "Divis Laboratories":        "Divis",
+    "Pidilite Industries":       "Pidilite",
+}
+
+def get_news_keyword(company_name: str) -> str:
+    """
+    Returns the best search keyword for a company name.
+    Checks alias map first, then falls back to first word of the name
+    (e.g. 'Infosys Limited' -> 'Infosys').
+    """
+    # Direct match
+    if company_name in NEWS_KEYWORDS:
+        return NEWS_KEYWORDS[company_name]
+    # Case-insensitive match
+    for key, val in NEWS_KEYWORDS.items():
+        if key.lower() == company_name.lower():
+            return val
+    # Fallback: use first meaningful word of the company name
+    words = company_name.split()
+    return words[0] if words else company_name
 
 vader = SentimentIntensityAnalyzer()
 
@@ -207,21 +291,35 @@ def badge_class(label):
 
 # ── Data fetchers ─────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_news(query: str) -> pd.DataFrame:
+def fetch_news(company_name: str) -> pd.DataFrame:
+    """
+    Fetches news from all RSS sources and filters to headlines that
+    mention the company keyword. Uses alias map so e.g. 'Adani Enterprises'
+    searches for 'Adani' and catches all Adani Group headlines.
+    """
+    keyword = get_news_keyword(company_name)
     articles = []
     for source, url in RSS_SOURCES.items():
         try:
-            feed_url = url.format(query=query) if "{query}" in url else url
+            # Yahoo Finance RSS supports ticker-based search via {query}
+            feed_url = url.format(query=keyword) if "{query}" in url else url
             feed = feedparser.parse(feed_url)
-            for entry in feed.entries[:12]:
+            for entry in feed.entries[:20]:
                 title = entry.get("title","").strip()
-                if title:
-                    articles.append({
-                        "source":    source,
-                        "title":     title,
-                        "published": entry.get("published", entry.get("updated",""))[:25],
-                        "link":      entry.get("link","#"),
-                    })
+                if not title:
+                    continue
+                # For general feeds (ET, MoneyControl etc), filter to only
+                # headlines that mention the keyword — avoids unrelated news
+                if "{query}" not in url:
+                    if keyword.lower() not in title.lower():
+                        continue
+                articles.append({
+                    "source":    source,
+                    "title":     title,
+                    "keyword":   keyword,
+                    "published": entry.get("published", entry.get("updated",""))[:25],
+                    "link":      entry.get("link","#"),
+                })
         except Exception:
             continue
     df = pd.DataFrame(articles)
@@ -544,7 +642,9 @@ if not news_df.empty:
     st.plotly_chart(fig_bar, use_container_width=True)
 
 # ── News Feed ─────────────────────────────────────────────────────────────────
-st.markdown("### 🗞️ Latest News")
+# Show which keyword was actually searched
+news_keyword = get_news_keyword(primary_name)
+st.markdown(f"### 🗞️ Latest News &nbsp;<span style='font-size:0.8rem;color:#5c7cfa'>searching: '{news_keyword}'</span>", unsafe_allow_html=True)
 if not news_df.empty:
     filt_col, _ = st.columns([2,6])
     with filt_col:
