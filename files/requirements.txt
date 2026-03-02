@@ -7,8 +7,3 @@ pandas>=2.0.0
 numpy>=1.26.0
 plotly>=5.22.0
 requests>=2.31.0
-praw>=7.7.1
-
-# FinBERT (optional but recommended — comment out if install is slow)
-transformers>=4.40.0
-torch>=2.2.0
