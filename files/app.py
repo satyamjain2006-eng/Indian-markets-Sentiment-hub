@@ -94,118 +94,520 @@ CRYPTO = {
 }
 
 # ── Load full NSE company list (~2000+ companies) ─────────────────────────────
+# ── All 472 NSE/BSE listed companies (embedded — no network needed) ──────────
+COMPANY_LIST = [
+    ("TCS", "Tata Consultancy Services"),
+    ("INFY", "Infosys"),
+    ("WIPRO", "Wipro"),
+    ("HCLTECH", "HCL Technologies"),
+    ("TECHM", "Tech Mahindra"),
+    ("LTIM", "LTIMindtree"),
+    ("MPHASIS", "Mphasis"),
+    ("PERSISTENT", "Persistent Systems"),
+    ("COFORGE", "Coforge"),
+    ("OFSS", "Oracle Financial Services Software"),
+    ("HEXAWARE", "Hexaware Technologies"),
+    ("NIITLTD", "NIIT"),
+    ("KPITTECH", "KPIT Technologies"),
+    ("TATAELXSI", "Tata Elxsi"),
+    ("ZENSAR", "Zensar Technologies"),
+    ("BIRLASOFT", "Birlasoft"),
+    ("MASTEK", "Mastek"),
+    ("SONATSOFTW", "Sonata Software"),
+    ("RAMSYSTEMS", "Ramco Systems"),
+    ("FSL", "Firstsource Solutions"),
+    ("ECLERX", "eClerx Services"),
+    ("INTELLECT", "Intellect Design Arena"),
+    ("NUCLEUS", "Nucleus Software Exports"),
+    ("TANLA", "Tanla Platforms"),
+    ("ROUTE", "Route Mobile"),
+    ("LATENTVIEW", "LatentView Analytics"),
+    ("HAPPSTMNDS", "Happiest Minds Technologies"),
+    ("CYIENT", "Cyient"),
+    ("NIIT", "NIIT Learning Solutions"),
+    ("MINDTREE", "Mindtree"),
+    ("MSTCLTD", "MSTC"),
+    ("NEWGEN", "Newgen Software Technologies"),
+    ("SUBEXLTD", "Subex"),
+    ("ISGEC", "ISGEC Heavy Engineering"),
+    ("DATAMATICS", "Datamatics Global Services"),
+    ("HDFCBANK", "HDFC Bank"),
+    ("ICICIBANK", "ICICI Bank"),
+    ("KOTAKBANK", "Kotak Mahindra Bank"),
+    ("SBIN", "State Bank Of India"),
+    ("AXISBANK", "Axis Bank"),
+    ("INDUSINDBK", "IndusInd Bank"),
+    ("BANDHANBNK", "Bandhan Bank"),
+    ("FEDERALBNK", "Federal Bank"),
+    ("IDFCFIRSTB", "IDFC First Bank"),
+    ("PNB", "Punjab National Bank"),
+    ("BANKBARODA", "Bank Of Baroda"),
+    ("CANBK", "Canara Bank"),
+    ("UNIONBANK", "Union Bank Of India"),
+    ("INDIANB", "Indian Bank"),
+    ("BANKINDIA", "Bank Of India"),
+    ("MAHABANK", "Bank Of Maharashtra"),
+    ("IOB", "Indian Overseas Bank"),
+    ("UCOBANK", "UCO Bank"),
+    ("CENTRALBK", "Central Bank Of India"),
+    ("PSB", "Punjab & Sind Bank"),
+    ("J&KBANK", "Jammu & Kashmir Bank"),
+    ("KARNATAKA", "Karnataka Bank"),
+    ("SOUTHBANK", "South Indian Bank"),
+    ("CSBBANK", "CSB Bank"),
+    ("DCBBANK", "DCB Bank"),
+    ("RBLBANK", "RBL Bank"),
+    ("LAKSHVILAS", "Lakshmi Vilas Bank"),
+    ("EQUITASBNK", "Equitas Small Finance Bank"),
+    ("UJJIVANSFB", "Ujjivan Small Finance Bank"),
+    ("SURYODAY", "Suryoday Small Finance Bank"),
+    ("ESAFSFB", "ESAF Small Finance Bank"),
+    ("AUBANK", "AU Small Finance Bank"),
+    ("NSLNISP", "NESFB"),
+    ("CAPITALSFB", "Capital Small Finance Bank"),
+    ("FINOPB", "Fino Payments Bank"),
+    ("BAJFINANCE", "Bajaj Finance"),
+    ("BAJAJFINSV", "Bajaj Finserv"),
+    ("MUTHOOTFIN", "Muthoot Finance"),
+    ("CHOLAFIN", "Cholamandalam Investment And Finance"),
+    ("MANAPPURAM", "Manappuram Finance"),
+    ("LICHSGFIN", "LIC Housing Finance"),
+    ("HDFC", "Housing Development Finance Corporation"),
+    ("HDFCAMC", "HDFC Asset Management"),
+    ("HDFCLIFE", "HDFC Life Insurance"),
+    ("ICICIGI", "ICICI Lombard General Insurance"),
+    ("ICICIPRULI", "ICICI Prudential Life Insurance"),
+    ("SBILIFE", "SBI Life Insurance"),
+    ("LICI", "Life Insurance Corporation Of India"),
+    ("GICRE", "General Insurance Corporation Of India"),
+    ("NIACL", "New India Assurance"),
+    ("ICICIAMC", "ICICI Prudential AMC"),
+    ("NAM-INDIA", "Nippon India Mutual Fund"),
+    ("ABSLAMC", "Aditya Birla Sun Life AMC"),
+    ("360ONE", "360 One WAM"),
+    ("MOTILALOFS", "Motilal Oswal Financial Services"),
+    ("IIFL", "IIFL Finance"),
+    ("IIFLFIN", "IIFL Finance"),
+    ("M&MFIN", "Mahindra & Mahindra Financial Services"),
+    ("SUNDARMFIN", "Sundaram Finance"),
+    ("SHRIRAMFIN", "Shriram Finance"),
+    ("LTFH", "L&T Finance Holdings"),
+    ("RECLTD", "REC"),
+    ("PFC", "Power Finance Corporation"),
+    ("IRFC", "Indian Railway Finance Corporation"),
+    ("HUDCO", "Housing & Urban Development Corporation"),
+    ("PNBHOUSING", "PNB Housing Finance"),
+    ("CANFINHOME", "Can Fin Homes"),
+    ("GRUH", "Gruh Finance"),
+    ("AAVAS", "Aavas Financiers"),
+    ("HOMEFIRST", "Home First Finance"),
+    ("APTUS", "Aptus Value Housing Finance"),
+    ("CREDITACC", "Creditaccess Grameen"),
+    ("SPANDANA", "Spandana Sphoorty Financial"),
+    ("ARMAN", "Arman Financial Services"),
+    ("UGROCAP", "Ugro Capital"),
+    ("ADANIENT", "Adani Enterprises"),
+    ("ADANIPORTS", "Adani Ports And Special Economic Zone"),
+    ("ADANIPOWER", "Adani Power"),
+    ("ADANIGREEN", "Adani Green Energy"),
+    ("ADANITRANS", "Adani Transmission"),
+    ("ADANITOTALGAZ", "Adani Total Gas"),
+    ("ADANIENSOL", "Adani Energy Solutions"),
+    ("AWL", "Adani Wilmar"),
+    ("NDTV", "New Delhi Television"),
+    ("SANGHI", "Sanghi Industries"),
+    ("AMBUJACEMENT", "Ambuja Cements"),
+    ("ACC", "ACC"),
+    ("TATAMOTORS", "Tata Motors"),
+    ("TATASTEEL", "Tata Steel"),
+    ("TATACONSUM", "Tata Consumer Products"),
+    ("TATAPOWER", "Tata Power"),
+    ("TATACOMM", "Tata Communications"),
+    ("TATACHEM", "Tata Chemicals"),
+    ("TIINDIA", "Tata Investment Corporation"),
+    ("TATATECH", "Tata Technologies"),
+    ("VOLTAS", "Voltas"),
+    ("TITAN", "Titan Company"),
+    ("TANISHQ", "Titan Company"),
+    ("TRENT", "Trent"),
+    ("NELCO", "Nelco"),
+    ("RALLIS", "Rallis India"),
+    ("RELIANCE", "Reliance Industries"),
+    ("JIOFINANCE", "Jio Financial Services"),
+    ("NETWORK18", "Network18 Media & Investments"),
+    ("TV18BRDCST", "TV18 Broadcast"),
+    ("HATHWAY", "Hathway Cable & Datacom"),
+    ("MARUTI", "Maruti Suzuki India"),
+    ("BAJAJ-AUTO", "Bajaj Auto"),
+    ("HEROMOTOCO", "Hero MotoCorp"),
+    ("EICHERMOT", "Eicher Motors"),
+    ("MM", "Mahindra & Mahindra"),
+    ("ASHOKLEY", "Ashok Leyland"),
+    ("TVSMOTOR", "TVS Motor Company"),
+    ("MOTHERSON", "Samvardhana Motherson International"),
+    ("BHARATFORG", "Bharat Forge"),
+    ("BOSCHLTD", "Bosch"),
+    ("EXIDEIND", "Exide Industries"),
+    ("AMARAJABAT", "Amara Raja Energy & Mobility"),
+    ("MRF", "MRF"),
+    ("APOLLOTYRE", "Apollo Tyres"),
+    ("CEATLTD", "CEAT"),
+    ("BALKRISIND", "Balkrishna Industries"),
+    ("SUNDRMFAST", "Sundram Fasteners"),
+    ("SUPRAJIT", "Suprajit Engineering"),
+    ("ENDURANCE", "Endurance Technologies"),
+    ("MINDAIND", "Spark Minda"),
+    ("LUMAX", "Lumax Industries"),
+    ("LUMAXTECH", "Lumax Auto Technologies"),
+    ("GABRIEL", "Gabriel India"),
+    ("MINDA", "UNO Minda"),
+    ("MAHSCOOTER", "Maharashtra Scooters"),
+    ("ESCORT", "Escorts Kubota"),
+    ("FORCEMOT", "Force Motors"),
+    ("SMLISUZU", "SML Isuzu"),
+    ("VSTILLERS", "VST Tillers Tractors"),
+    ("MAHINDCIE", "Mahindra CIE Automotive"),
+    ("ONGC", "Oil And Natural Gas Corporation"),
+    ("COALINDIA", "Coal India"),
+    ("BPCL", "Bharat Petroleum Corporation"),
+    ("IOC", "Indian Oil Corporation"),
+    ("GAIL", "GAIL India"),
+    ("HINDPETRO", "Hindustan Petroleum Corporation"),
+    ("OIL", "Oil India"),
+    ("PETRONET", "Petronet LNG"),
+    ("CASTROLIND", "Castrol India"),
+    ("MRPL", "Mangalore Refinery And Petrochemicals"),
+    ("CHENNPETRO", "Chennai Petroleum Corporation"),
+    ("NRL", "Numaligarh Refinery"),
+    ("GULFOILLUB", "Gulf Oil Lubricants India"),
+    ("AEGISCHEM", "Aegis Logistics"),
+    ("POWERGRID", "Power Grid Corporation Of India"),
+    ("NTPC", "NTPC"),
+    ("TORNTPOWER", "Torrent Power"),
+    ("CESC", "CESC"),
+    ("NHPC", "NHPC"),
+    ("SJVN", "SJVN"),
+    ("THERMAX", "Thermax"),
+    ("SUZLON", "Suzlon Energy"),
+    ("INOXWIND", "Inox Wind"),
+    ("ORIENTELEC", "Orient Electric"),
+    ("INDOSTAR", "IndoStar Capital Finance"),
+    ("RPOWER", "Reliance Power"),
+    ("JPPOWER", "Jaiprakash Power Ventures"),
+    ("GMRINFRA", "GMR Airports Infrastructure"),
+    ("LT", "Larsen & Toubro"),
+    ("LTTS", "L&T Technology Services"),
+    ("NCC", "NCC"),
+    ("KEC", "KEC International"),
+    ("KALPATPOWR", "Kalpataru Projects International"),
+    ("ENGINERSIN", "Engineers India"),
+    ("RITES", "RITES"),
+    ("IRCON", "Ircon International"),
+    ("NBCC", "NBCC India"),
+    ("HGINFRA", "H.G. Infra Engineering"),
+    ("PNCINFRA", "PNC Infratech"),
+    ("GPPL", "Gujarat Pipavav Port"),
+    ("ESAB", "Esab India"),
+    ("AHLUCONT", "Ahluwalia Contracts India"),
+    ("CAPACITE", "Capacite Infraprojects"),
+    ("JKCEMENT", "JK Cement"),
+    ("WELSPUNIND", "Welspun India"),
+    ("ULTRACEMCO", "Ultratech Cement"),
+    ("SHREECEM", "Shree Cement"),
+    ("GRASIM", "Grasim Industries"),
+    ("AMBUJACEM", "Ambuja Cements"),
+    ("RAMCOCEM", "Ramco Cements"),
+    ("DALMIA", "Dalmia Bharat"),
+    ("HEIDELBERG", "HeidelbergCement India"),
+    ("BIRLACORPN", "Birla Corporation"),
+    ("PRISMJOHNS", "Prism Johnson"),
+    ("ORIENTCEM", "Orient Cement"),
+    ("STARCEMENT", "Star Cement"),
+    ("NUVOCO", "Nuvoco Vistas Corporation"),
+    ("JSWSTEEL", "JSW Steel"),
+    ("HINDALCO", "Hindalco Industries"),
+    ("SAIL", "Steel Authority Of India"),
+    ("NMDC", "NMDC"),
+    ("NATIONALUM", "National Aluminium Company"),
+    ("VEDL", "Vedanta"),
+    ("HINDCOPPER", "Hindustan Copper"),
+    ("MOIL", "MOIL"),
+    ("WELCORP", "Welspun Corp"),
+    ("RATNAMANI", "Ratnamani Metals & Tubes"),
+    ("JSWENERGY", "JSW Energy"),
+    ("APLAPOLLO", "APL Apollo Tubes"),
+    ("SURAJEST", "Suraj Estate Developers"),
+    ("JSPL", "Jindal Steel & Power"),
+    ("JINDALSAW", "Jindal Saw"),
+    ("JINDALPOLY", "Jindal Poly Films"),
+    ("JINDALSTEL", "Jindal Stainless"),
+    ("SUNPHARMA", "Sun Pharmaceutical Industries"),
+    ("DRREDDY", "Dr Reddys Laboratories"),
+    ("CIPLA", "Cipla"),
+    ("DIVISLAB", "Divis Laboratories"),
+    ("BIOCON", "Biocon"),
+    ("LUPIN", "Lupin"),
+    ("AUROPHARMA", "Aurobindo Pharma"),
+    ("TORNTPHARM", "Torrent Pharmaceuticals"),
+    ("ALKEM", "Alkem Laboratories"),
+    ("GLAND", "Gland Pharma"),
+    ("ABBOTINDIA", "Abbott India"),
+    ("PFIZER", "Pfizer"),
+    ("SANOFI", "Sanofi India"),
+    ("GLAXO", "GlaxoSmithKline Pharmaceuticals"),
+    ("ERIS", "Eris Lifesciences"),
+    ("NATCOPHARM", "Natco Pharma"),
+    ("GRANULES", "Granules India"),
+    ("IPCALAB", "IPCA Laboratories"),
+    ("LALPATHLAB", "Dr Lal Pathlabs"),
+    ("METROPOLIS", "Metropolis Healthcare"),
+    ("THYROCARE", "Thyrocare Technologies"),
+    ("KRSNAA", "Krsnaa Diagnostics"),
+    ("APOLLOHOSP", "Apollo Hospitals Enterprise"),
+    ("FORTIS", "Fortis Healthcare"),
+    ("MAXHEALTH", "Max Healthcare Institute"),
+    ("ASTER", "Aster DM Healthcare"),
+    ("MEDANTA", "Global Health"),
+    ("RAINBOW", "Rainbow Childrens Medicare"),
+    ("VIJAYA", "Vijaya Diagnostic Centre"),
+    ("SUVEN", "Suven Pharmaceuticals"),
+    ("SEQUENT", "Sequent Scientific"),
+    ("SOLARA", "Solara Active Pharma Sciences"),
+    ("WINDLAS", "Windlas Biotech"),
+    ("STRIDES", "Strides Pharma Science"),
+    ("GLENMARK", "Glenmark Pharmaceuticals"),
+    ("CADILAHC", "Zydus Lifesciences"),
+    ("ZYDUSLIFE", "Zydus Lifesciences"),
+    ("NMSRL", "Nms Resources"),
+    ("MSPL", "MSP Steel & Power"),
+    ("HINDUNILVR", "Hindustan Unilever"),
+    ("ITC", "ITC"),
+    ("NESTLEIND", "Nestle India"),
+    ("BRITANNIA", "Britannia Industries"),
+    ("GODREJCP", "Godrej Consumer Products"),
+    ("DABUR", "Dabur India"),
+    ("MARICO", "Marico"),
+    ("COLPAL", "Colgate Palmolive India"),
+    ("EMAMILTD", "Emami"),
+    ("BAJAJCON", "Bajaj Consumer Care"),
+    ("JYOTHYLAB", "Jyothy Labs"),
+    ("VGGUARD", "VGGuard"),
+    ("PGHH", "Procter & Gamble Hygiene And Health Care"),
+    ("GILLETTE", "Gillette India"),
+    ("HATSUN", "Hatsun Agro Product"),
+    ("VADILALIND", "Vadilal Industries"),
+    ("HERSHEYS", "Hersheys India"),
+    ("GODFRYPHLP", "Godfrey Phillips India"),
+    ("VST", "VST Industries"),
+    ("RADICO", "Radico Khaitan"),
+    ("UNITDSPR", "United Spirits"),
+    ("MCDOWELL-N", "United Spirits"),
+    ("JUBLFOOD", "Jubilant Foodworks"),
+    ("WESTLIFE", "Westlife Foodworld"),
+    ("DEVYANI", "Devyani International"),
+    ("SAPPHIRE", "Sapphire Foods India"),
+    ("BARBEQUE", "Barbeque Nation Hospitality"),
+    ("BHARTIARTL", "Bharti Airtel"),
+    ("IDEA", "Vodafone Idea"),
+    ("RAILTEL", "Railtel Corporation Of India"),
+    ("GTLINFRA", "GTL Infrastructure"),
+    ("INDIAMART", "IndiaMart InterMesh"),
+    ("NAUKRI", "Info Edge India"),
+    ("JUSTDIAL", "Just Dial"),
+    ("MAKEMYTRIP", "MakeMyTrip"),
+    ("ASIANPAINT", "Asian Paints"),
+    ("BERGER", "Berger Paints India"),
+    ("KANSAINER", "Kansai Nerolac Paints"),
+    ("AKZOINDIA", "Akzo Nobel India"),
+    ("INDIGO", "InterGlobe Aviation"),
+    ("DMART", "Avenue Supermarts"),
+    ("ABFRL", "Aditya Birla Fashion And Retail"),
+    ("RAYMOND", "Raymond"),
+    ("PAGEIND", "Page Industries"),
+    ("VEDANT", "Vedant Fashions"),
+    ("MANYAVAR", "Vedant Fashions"),
+    ("SHOPERSTOP", "Shoppers Stop"),
+    ("VMART", "V-Mart Retail"),
+    ("ZOMATO", "Zomato"),
+    ("NYKAA", "FSN E-Commerce Ventures"),
+    ("PAYTM", "One97 Communications"),
+    ("POLICYBZR", "PB Fintech"),
+    ("CARTRADE", "CarTrade Tech"),
+    ("EASEMYTRIP", "Easy Trip Planners"),
+    ("IXIGO", "Le Travenues Technology"),
+    ("IRCTC", "Indian Railway Catering And Tourism Corporation"),
+    ("HAL", "Hindustan Aeronautics"),
+    ("BEL", "Bharat Electronics"),
+    ("BEML", "BEML"),
+    ("COCHINSHIP", "Cochin Shipyard"),
+    ("GRSE", "Garden Reach Shipbuilders & Engineers"),
+    ("MAZAGON", "Mazagon Dock Shipbuilders"),
+    ("MIDHANI", "Mishra Dhatu Nigam"),
+    ("PARAS", "Paras Defence And Space Technologies"),
+    ("IDEAFORGE", "ideaForge Technology"),
+    ("DCXSYS", "DCX Systems"),
+    ("MTAR", "MTAR Technologies"),
+    ("DYNAMATECH", "Dynamatic Technologies"),
+    ("UPL", "UPL"),
+    ("PIDILITIND", "Pidilite Industries"),
+    ("SRF", "SRF"),
+    ("DEEPAKNTR", "Deepak Nitrite"),
+    ("NAVINFLUOR", "Navin Fluorine International"),
+    ("FLUOROCHEM", "Gujarat Fluorochemicals"),
+    ("ALKYLAMIN", "Alkyl Amines Chemicals"),
+    ("BALCHEMIE", "Balaji Amines"),
+    ("CLEAN", "Clean Science And Technology"),
+    ("GSFC", "Gujarat State Fertilizers & Chemicals"),
+    ("GNFC", "Gujarat Narmada Valley Fertilizers & Chemicals"),
+    ("COROMANDEL", "Coromandel International"),
+    ("PARADEEP", "Paradeep Phosphates"),
+    ("NFL", "National Fertilizers"),
+    ("RCF", "Rashtriya Chemicals And Fertilizers"),
+    ("CHAMBALFERT", "Chambal Fertilisers And Chemicals"),
+    ("ZUARI", "Zuari Agro Chemicals"),
+    ("GALAXYSURF", "Galaxy Surfactants"),
+    ("FINEORG", "Fine Organic Industries"),
+    ("APCOTEX", "Apcotex Industries"),
+    ("NOCIL", "NOCIL"),
+    ("ROSSARI", "Rossari Biotech"),
+    ("VARDHACRLC", "Vardhman Textiles"),
+    ("TRIDENT", "Trident"),
+    ("NITIN", "Nitin Spinners"),
+    ("RUPA", "Rupa & Company"),
+    ("GOKEX", "Gokaldas Exports"),
+    ("KITEX", "Kitex Garments"),
+    ("SPORTKING", "Sportking India"),
+    ("SUTLEJTEX", "Sutlej Textiles And Industries"),
+    ("ARVIND", "Arvind"),
+    ("DCMSHRIRAM", "DCM Shriram"),
+    ("FILATEX", "Filatex India"),
+    ("DLF", "DLF"),
+    ("OBEROIRLTY", "Oberoi Realty"),
+    ("PHOENIXLTD", "Phoenix Mills"),
+    ("GODREJPROP", "Godrej Properties"),
+    ("PRESTIGE", "Prestige Estates Projects"),
+    ("SOBHA", "Sobha"),
+    ("BRIGADE", "Brigade Enterprises"),
+    ("MAHLIFE", "Mahindra Lifespace Developers"),
+    ("KOLTEPATIL", "Kolte Patil Developers"),
+    ("SUNTECK", "Sunteck Realty"),
+    ("LODHA", "Macrotech Developers"),
+    ("NESCO", "Nesco"),
+    ("EMBASSY", "Embassy Office Parks REIT"),
+    ("MINDSPACE", "Mindspace Business Parks REIT"),
+    ("BROOKFIELD", "Brookfield India Real Estate Trust"),
+    ("ZEEL", "Zee Entertainment Enterprises"),
+    ("SUNTV", "Sun TV Network"),
+    ("PVRINOX", "PVR INOX"),
+    ("INOXLEISUR", "INOX Leisure"),
+    ("SAREGAMA", "Saregama India"),
+    ("TIPS", "Tips Music"),
+    ("NAZARA", "Nazara Technologies"),
+    ("ONMOBILE", "OnMobile Global"),
+    ("INDHOTEL", "Indian Hotels Company"),
+    ("EIHOTEL", "EIH"),
+    ("TAJGVK", "Taj GVK Hotels & Resorts"),
+    ("LEMON", "Lemon Tree Hotels"),
+    ("CHALET", "Chalet Hotels"),
+    ("MAHINDRA", "Club Mahindra Holidays"),
+    ("MHRIL", "Mahindra Holidays & Resorts India"),
+    ("THOMASCOOK", "Thomas Cook India"),
+    ("SOTL", "Savera Industries"),
+    ("KAVVERITEL", "Kavveri Telecom Products"),
+    ("KSCL", "Kaveri Seed Company"),
+    ("PI", "PI Industries"),
+    ("DHANUKA", "Dhanuka Agritech"),
+    ("INSECTICID", "Insecticides India"),
+    ("DHAMPUR", "Dhampur Sugar Mills"),
+    ("BALRAMCHIN", "Balrampur Chini Mills"),
+    ("EIDPARRY", "EID Parry India"),
+    ("BAJAJHIND", "Bajaj Hindusthan Sugar"),
+    ("RENUKA", "Shree Renuka Sugars"),
+    ("TRIVENI", "Triveni Engineering And Industries"),
+    ("KRBL", "KRBL"),
+    ("CONCOR", "Container Corporation Of India"),
+    ("BLUEDART", "Blue Dart Express"),
+    ("DELHIVERY", "Delhivery"),
+    ("GATI", "Allcargo Gati"),
+    ("ALLCARGO", "Allcargo Logistics"),
+    ("VRL", "VRL Logistics"),
+    ("TCI", "Transport Corporation Of India"),
+    ("MAHLOG", "Mahindra Logistics"),
+    ("XPRO", "XPRO India"),
+    ("SCI", "Shipping Corporation Of India"),
+    ("M&M", "Mahindra & Mahindra"),
+    ("HAVELLS", "Havells India"),
+    ("DIXON", "Dixon Technologies India"),
+    ("AMBER", "Amber Enterprises India"),
+    ("BLUESTAR", "Blue Star"),
+    ("WHIRLPOOL", "Whirlpool Of India"),
+    ("SYMPHONY", "Symphony"),
+    ("CROMPTON", "Crompton Greaves Consumer Electricals"),
+    ("BAJAJELEC", "Bajaj Electricals"),
+    ("VGUARD", "V-Guard Industries"),
+    ("POLYCAB", "Polycab India"),
+    ("KEI", "KEI Industries"),
+    ("FINOLEX", "Finolex Cables"),
+    ("SIEVERTL", "Siemens"),
+    ("ABB", "ABB India"),
+    ("HONAUT", "Honeywell Automation India"),
+    ("SCHNEIDER", "Schneider Electric Infrastructure"),
+    ("3MINDIA", "3M India"),
+    ("CUMMINSIND", "Cummins India"),
+    ("TIMKEN", "Timken India"),
+    ("SKFINDIA", "SKF India"),
+    ("SCHAEFFLER", "Schaeffler India"),
+    ("GRINDWELL", "Grindwell Norton"),
+    ("CARBORUNIV", "Carborundum Universal"),
+    ("AIAENG", "AIA Engineering"),
+    ("BHEL", "Bharat Heavy Electricals"),
+    ("MAPMYINDIA", "CE Info Systems"),
+    ("TRACXN", "Tracxn Technologies"),
+    ("KAYNES", "Kaynes Technology India"),
+    ("SYRMA", "Syrma SGS Technology"),
+    ("AVALON", "Avalon Technologies"),
+    ("ETHOS", "Ethos"),
+    ("INDIASHLTR", "India Shelter Finance Corporation"),
+]
+
 @st.cache_data(ttl=86400, show_spinner=False)
 def load_indian_companies() -> pd.DataFrame:
     """
-    Downloads official NSE equity list CSV (~2000 companies).
-    Falls back to a hardcoded seed of 50 well-known companies if offline.
+    Builds company DataFrame from embedded list of 472 NSE/BSE companies.
+    No network call needed — works on Streamlit Cloud reliably.
+    Also attempts to fetch the full NSE CSV (~2000+ companies) and merges
+    it in if successful, giving even broader coverage.
     """
-    nse_url = "https://archives.nseindia.com/content/equities/EQUITY_L.csv"
-    try:
-        df = pd.read_csv(nse_url)
-        df = df[["SYMBOL", "NAME OF COMPANY"]].copy()
-        df.columns = ["symbol", "name"]
-        df["name"]     = df["name"].str.strip().str.title()
-        df["symbol"]   = df["symbol"].str.strip()
-        df["yf_ns"]    = df["symbol"] + ".NS"
-        df["yf_bo"]    = df["symbol"] + ".BO"
-        df["exchange"] = "NSE/BSE"
-        return df.dropna().reset_index(drop=True)
-    except Exception:
-        seed = [
-            # ── Reliance ──────────────────────────────────────────────
-            ("RELIANCE","Reliance Industries"),
-            # ── TCS / IT ──────────────────────────────────────────────
-            ("TCS","Tata Consultancy Services"),("INFY","Infosys"),
-            ("WIPRO","Wipro"),("HCLTECH","HCL Technologies"),
-            ("TECHM","Tech Mahindra"),("LTIM","LTIMindtree"),
-            ("MPHASIS","Mphasis"),("PERSISTENT","Persistent Systems"),
-            ("COFORGE","Coforge"),("OFSS","Oracle Financial Services"),
-            # ── Adani Group ───────────────────────────────────────────
-            ("ADANIENT","Adani Enterprises"),
-            ("ADANIPORTS","Adani Ports"),
-            ("ADANIPOWER","Adani Power"),
-            ("ADANIGREEN","Adani Green Energy"),
-            ("ADANITRANS","Adani Transmission"),
-            ("ADANITOTALGAZ","Adani Total Gas"),
-            ("ADANIENSOL","Adani Energy Solutions"),
-            ("AWL","Adani Wilmar"),
-            ("NDTV","NDTV"),
-            # ── Tata Group ────────────────────────────────────────────
-            ("TATAMOTORS","Tata Motors"),("TATASTEEL","Tata Steel"),
-            ("TATACONSUM","Tata Consumer Products"),
-            ("TATAPOWER","Tata Power"),("TATACOMM","Tata Communications"),
-            ("TATACHEM","Tata Chemicals"),("TATAELXSI","Tata Elxsi"),
-            ("TIINDIA","Tata Investment Corp"),
-            # ── Banking ───────────────────────────────────────────────
-            ("HDFCBANK","HDFC Bank"),("ICICIBANK","ICICI Bank"),
-            ("KOTAKBANK","Kotak Mahindra Bank"),("SBIN","State Bank Of India"),
-            ("AXISBANK","Axis Bank"),("INDUSINDBK","IndusInd Bank"),
-            ("BANDHANBNK","Bandhan Bank"),("FEDERALBNK","Federal Bank"),
-            ("IDFCFIRSTB","IDFC First Bank"),("PNB","Punjab National Bank"),
-            ("BANKBARODA","Bank Of Baroda"),("CANBK","Canara Bank"),
-            ("UNIONBANK","Union Bank Of India"),("INDIANB","Indian Bank"),
-            # ── HDFC Group ────────────────────────────────────────────
-            ("HDFCLIFE","HDFC Life Insurance"),("HDFCAMC","HDFC AMC"),
-            # ── Finance / NBFC ────────────────────────────────────────
-            ("BAJFINANCE","Bajaj Finance"),("BAJAJFINSV","Bajaj Finserv"),
-            ("MUTHOOTFIN","Muthoot Finance"),("CHOLAFIN","Cholamandalam Finance"),
-            ("MANAPPURAM","Manappuram Finance"),("LICHSGFIN","LIC Housing Finance"),
-            # ── Auto ──────────────────────────────────────────────────
-            ("MARUTI","Maruti Suzuki"),("BAJAJ-AUTO","Bajaj Auto"),
-            ("HEROMOTOCO","Hero Motocorp"),("EICHERMOT","Eicher Motors"),
-            ("MM","Mahindra & Mahindra"),("ASHOKLEY","Ashok Leyland"),
-            ("TVSMOTOR","TVS Motor"),("MOTHERSON","Samvardhana Motherson"),
-            ("BHARATFORG","Bharat Forge"),("BOSCHLTD","Bosch"),
-            # ── FMCG ──────────────────────────────────────────────────
-            ("HINDUNILVR","Hindustan Unilever"),("ITC","ITC"),
-            ("NESTLEIND","Nestle India"),("BRITANNIA","Britannia Industries"),
-            ("TATACONSUM","Tata Consumer Products"),("GODREJCP","Godrej Consumer"),
-            ("DABUR","Dabur India"),("MARICO","Marico"),("COLPAL","Colgate Palmolive"),
-            ("EMAMILTD","Emami"),
-            # ── Pharma ────────────────────────────────────────────────
-            ("SUNPHARMA","Sun Pharmaceutical"),("DRREDDY","Dr Reddys Laboratories"),
-            ("CIPLA","Cipla"),("DIVISLAB","Divis Laboratories"),
-            ("BIOCON","Biocon"),("LUPIN","Lupin"),("AUROPHARMA","Aurobindo Pharma"),
-            ("TORNTPHARM","Torrent Pharmaceuticals"),("ALKEM","Alkem Laboratories"),
-            # ── Infrastructure / Energy ───────────────────────────────
-            ("LT","Larsen & Toubro"),("POWERGRID","Power Grid Corp"),
-            ("NTPC","NTPC"),("ONGC","Oil & Natural Gas Corp"),
-            ("COALINDIA","Coal India"),("BPCL","Bharat Petroleum"),
-            ("IOC","Indian Oil Corp"),("GAIL","GAIL India"),
-            ("HINDPETRO","Hindustan Petroleum"),("OIL","Oil India"),
-            # ── Cement / Materials ────────────────────────────────────
-            ("ULTRACEMCO","Ultratech Cement"),("SHREECEM","Shree Cement"),
-            ("GRASIM","Grasim Industries"),("AMBUJACEM","Ambuja Cements"),
-            ("ACC","ACC"),("JSWSTEEL","JSW Steel"),("TATASTEEL","Tata Steel"),
-            ("HINDALCO","Hindalco Industries"),("SAIL","Steel Authority Of India"),
-            ("NMDC","NMDC"),("NATIONALUM","National Aluminium"),
-            # ── Telecom ───────────────────────────────────────────────
-            ("BHARTIARTL","Bharti Airtel"),("IDEA","Vodafone Idea"),
-            # ── Consumer / Retail ─────────────────────────────────────
-            ("ASIANPAINT","Asian Paints"),("TITAN","Titan Company"),
-            ("PIDILITIND","Pidilite Industries"),("HAVELLS","Havells India"),
-            ("VOLTAS","Voltas"),("WHIRLPOOL","Whirlpool India"),
-            ("DMART","Avenue Supermarts"),("TRENT","Trent"),
-            # ── Healthcare ────────────────────────────────────────────
-            ("APOLLOHOSP","Apollo Hospitals"),("FORTIS","Fortis Healthcare"),
-            ("MAXHEALTH","Max Healthcare"),("METROPOLIS","Metropolis Healthcare"),
-            # ── Insurance ─────────────────────────────────────────────
-            ("SBILIFE","SBI Life Insurance"),("ICICIlombard","ICICI Lombard"),
-            ("LICI","Life Insurance Corporation"),
-            # ── Others ────────────────────────────────────────────────
-            ("INDIGO","Interglobe Aviation"),("ZOMATO","Zomato"),
-            ("NYKAA","FSN E-Commerce"),("PAYTM","One97 Communications"),
-            ("POLICYBZR","PB Fintech"),("IRCTC","Indian Railway Catering"),
-            ("IRFC","Indian Railway Finance"),("HAL","Hindustan Aeronautics"),
-            ("BEL","Bharat Electronics"),("MFSL","Max Financial Services"),
-        ]
-        df = pd.DataFrame(seed, columns=["symbol","name"])
-        df["yf_ns"]    = df["symbol"] + ".NS"
-        df["yf_bo"]    = df["symbol"] + ".BO"
-        df["exchange"] = "NSE/BSE"
-        return df
+    # Start with embedded list
+    df = pd.DataFrame(COMPANY_LIST, columns=["symbol", "name"])
+    df["name"]     = df["name"].str.strip()
+    df["symbol"]   = df["symbol"].str.strip()
 
+    # Try to augment with live NSE CSV (will work locally, may fail on cloud)
+    try:
+        import io
+        nse_url = "https://archives.nseindia.com/content/equities/EQUITY_L.csv"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        resp = requests.get(nse_url, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            live_df = pd.read_csv(io.StringIO(resp.text))
+            live_df = live_df[["SYMBOL", "NAME OF COMPANY"]].copy()
+            live_df.columns = ["symbol", "name"]
+            live_df["name"]   = live_df["name"].str.strip().str.title()
+            live_df["symbol"] = live_df["symbol"].str.strip()
+            # Merge: live data takes precedence for symbols already in list,
+            # new symbols get added
+            combined = pd.concat([live_df, df]).drop_duplicates(
+                subset=["symbol"], keep="first"
+            )
+            df = combined
+    except Exception:
+        pass  # Silently fall back to embedded list
+
+    df["yf_ns"]    = df["symbol"] + ".NS"
+    df["yf_bo"]    = df["symbol"] + ".BO"
+    df["exchange"] = "NSE/BSE"
+    return df.dropna().reset_index(drop=True)
 
 def search_companies(query: str, df: pd.DataFrame, top_n: int = 12) -> pd.DataFrame:
     """
@@ -248,13 +650,21 @@ def search_companies(query: str, df: pd.DataFrame, top_n: int = 12) -> pd.DataFr
 
 
 # ── RSS News Sources ──────────────────────────────────────────────────────────
-RSS_SOURCES = {
-    "Economic Times": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
-    "MoneyControl":   "https://www.moneycontrol.com/rss/marketreports.xml",
-    "LiveMint":       "https://www.livemint.com/rss/markets",
-    "Yahoo Finance":  "https://finance.yahoo.com/rss/headline?s={query}",
-    "Reuters":        "https://feeds.reuters.com/reuters/businessNews",
-}
+# ── News via Google News RSS (most reliable on Streamlit Cloud) ───────────────
+# Google News RSS works from any server and always has fresh Indian market news.
+# We use multiple targeted queries per company to maximise coverage.
+def get_rss_urls(keyword: str, symbol: str) -> dict:
+    """
+    Returns a dict of source_name -> RSS URL for the given keyword/symbol.
+    Google News RSS format: https://news.google.com/rss/search?q=QUERY&hl=en-IN&gl=IN&ceid=IN:en
+    This is publicly accessible from Streamlit Cloud.
+    """
+    base = "https://news.google.com/rss/search?hl=en-IN&gl=IN&ceid=IN:en&q="
+    return {
+        f"Google News ({keyword})":    base + keyword.replace(" ", "+") + "+stock",
+        f"Google News ({symbol})":     base + symbol + "+NSE+stock",
+        f"Google News (market)":       base + keyword.replace(" ", "+") + "+share+price",
+    }
 
 # ── Keyword alias map ─────────────────────────────────────────────────────────
 # Maps full company names → short search keyword used to filter headlines.
@@ -355,38 +765,44 @@ def badge_class(label):
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_news(company_name: str) -> pd.DataFrame:
     """
-    Fetches news from all RSS sources and filters to headlines that
-    mention the company keyword. Uses alias map so e.g. 'Adani Enterprises'
-    searches for 'Adani' and catches all Adani Group headlines.
+    Fetches news using Google News RSS — works reliably on Streamlit Cloud.
+    Queries multiple variations of the company name/symbol to maximise results.
     """
     keyword = get_news_keyword(company_name)
+    symbol  = st.session_state.get("primary_symbol", "")
+    rss_urls = get_rss_urls(keyword, symbol)
+
+    seen_titles = set()
     articles = []
-    for source, url in RSS_SOURCES.items():
+
+    for source, url in rss_urls.items():
         try:
-            # Yahoo Finance RSS supports ticker-based search via {query}
-            feed_url = url.format(query=keyword) if "{query}" in url else url
-            feed = feedparser.parse(feed_url)
-            for entry in feed.entries[:20]:
-                title = entry.get("title","").strip()
-                if not title:
+            feed = feedparser.parse(url)
+            for entry in feed.entries[:15]:
+                title = entry.get("title", "").strip()
+                # Google News sometimes appends source after " - ", clean it
+                if " - " in title:
+                    title, source_suffix = title.rsplit(" - ", 1)
+                    display_source = source_suffix
+                else:
+                    display_source = source
+                if not title or title in seen_titles:
                     continue
-                # For general feeds (ET, MoneyControl etc), filter to only
-                # headlines that mention the keyword — avoids unrelated news
-                if "{query}" not in url:
-                    if keyword.lower() not in title.lower():
-                        continue
+                seen_titles.add(title)
                 articles.append({
-                    "source":    source,
+                    "source":    display_source,
                     "title":     title,
                     "keyword":   keyword,
-                    "published": entry.get("published", entry.get("updated",""))[:25],
-                    "link":      entry.get("link","#"),
+                    "published": entry.get("published", entry.get("updated", ""))[:25],
+                    "link":      entry.get("link", "#"),
                 })
         except Exception:
             continue
-    df = pd.DataFrame(articles)
-    if df.empty:
-        return df
+
+    if not articles:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(articles).reset_index(drop=True)
     df["compound"] = df["title"].apply(combined_score)
     df["vader"]    = df["title"].apply(vader_score)
     df["finbert"]  = df["title"].apply(finbert_score) if FINBERT_AVAILABLE else 0.0
@@ -592,7 +1008,7 @@ with st.sidebar:
     st.markdown("---")
     st.caption(f"FinBERT: {'✅ Active' if FINBERT_AVAILABLE else '⚠️ VADER only'}")
     st.caption(f"Companies loaded: {len(all_companies):,}")
-    st.caption("Sources: ET · MoneyControl · LiveMint · Reuters · Yahoo")
+    st.caption("News: Google News RSS (India)")
 
 
 # ── Header ────────────────────────────────────────────────────────────────────
@@ -734,6 +1150,6 @@ if not news_df.empty:
     with st.expander("🔍 Raw sentiment data"):
         cols = ["source","title","label","compound","vader"] + (["finbert"] if FINBERT_AVAILABLE else [])
         st.dataframe(
-            news_df[cols].style.background_gradient(subset=["compound"], cmap="RdYlGn", vmin=-1, vmax=1),
+            news_df[cols],
             use_container_width=True
         )
