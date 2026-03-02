@@ -23,13 +23,8 @@ st.set_page_config(
 from streamlit_autorefresh import st_autorefresh
 st_autorefresh(interval=60_000, limit=None, key="autorefresh")
 
-# ── Try importing FinBERT ─────────────────────────────────────────────────────
-try:
-    from transformers import pipeline
-    finbert = pipeline("text-classification", model="ProsusAI/finbert", top_k=None)
-    FINBERT_AVAILABLE = True
-except Exception:
-    FINBERT_AVAILABLE = False
+
+
 
 # ── CSS ───────────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -774,26 +769,14 @@ vader = SentimentIntensityAnalyzer()
 def vader_score(text: str) -> float:
     return vader.polarity_scores(text)["compound"]
 
-def finbert_score(text: str) -> float:
-    if not FINBERT_AVAILABLE:
-        return 0.0
-    try:
-        results = finbert(text[:512])[0]
-        score_map = {r["label"]: r["score"] for r in results}
-        return score_map.get("positive", 0) - score_map.get("negative", 0)
-    except Exception:
-        return 0.0
+
 
 def combined_score(text: str) -> float:
-    v = vader_score(text)
-    if FINBERT_AVAILABLE:
-        f = finbert_score(text)
-        return round((v * 0.4 + f * 0.6), 4)
-    return round(v, 4)
+    return round(vader_score(text), 4)
 
 def label_from_score(score: float) -> str:
-    if score >= 0.05:  return "Positive"
-    if score <= -0.05: return "Negative"
+    if score >= 0.07:  return "Positive"
+    if score <= -0.07: return "Negative"
     return "Neutral"
 
 def sentiment_color(label):
@@ -878,9 +861,7 @@ def fetch_news(company_name: str) -> pd.DataFrame:
     df = relevant if len(relevant) >= 5 else df
     df = df.drop(columns=["relevant"], errors="ignore").reset_index(drop=True)
 
-    df["compound"] = df["title"].apply(combined_score)
-    df["vader"]    = df["title"].apply(vader_score)
-    df["finbert"]  = df["title"].apply(finbert_score) if FINBERT_AVAILABLE else 0.0
+    df["compound"] = df["title"].apply(vader_score)
     df["label"]    = df["compound"].apply(label_from_score)
     return df
 
@@ -1081,7 +1062,6 @@ with st.sidebar:
     st.markdown("---")
     period = st.select_slider("Period", options=["1mo","3mo","6mo","1y","2y"], value="3mo")
     st.markdown("---")
-    st.caption(f"FinBERT: {'✅ Active' if FINBERT_AVAILABLE else '⚠️ VADER only'}")
     st.caption(f"Companies loaded: {len(all_companies):,}")
     st.caption("News: Google News · ET · MoneyControl · LiveMint · Reuters")
 
@@ -1158,41 +1138,32 @@ if not news_df.empty:
         st.plotly_chart(fig_donut, use_container_width=True)
 
     with col_right:
-        if FINBERT_AVAILABLE:
-            fig_sc = go.Figure(go.Scatter(
-                x=news_df["vader"], y=news_df["finbert"], mode="markers",
-                marker=dict(color=news_df["compound"], colorscale="RdYlGn",
-                            size=10, cmin=-1, cmax=1,
-                            colorbar=dict(title="Score", thickness=10)),
-                text=news_df["title"], hoverinfo="text+x+y"
-            ))
-            fig_sc.add_hline(y=0, line_dash="dot", line_color="#444")
-            fig_sc.add_vline(x=0, line_dash="dot", line_color="#444")
-            fig_sc.update_layout(
-                template="plotly_dark", paper_bgcolor="#131929", plot_bgcolor="#131929",
-                margin=dict(l=0,r=0,t=30,b=0), height=260,
-                title=dict(text="<b>VADER vs FinBERT</b>", font=dict(size=12, color="#8892c4")),
-                xaxis=dict(title="VADER", gridcolor="#1a2035"),
-                yaxis=dict(title="FinBERT", gridcolor="#1a2035"),
-            )
-            st.plotly_chart(fig_sc, use_container_width=True)
-        else:
-            st.info("Install `transformers` + `torch` to enable FinBERT vs VADER comparison.")
+        st.markdown("#### 📈 Sentiment Trend (Latest Articles)")
+        trend_df = news_df.copy().reset_index(drop=True)
+        trend_df["article_index"] = range(1, len(trend_df) + 1
+                           
 
-    bar_colors = [sentiment_color(l) for l in news_df["label"]]
-    fig_bar = go.Figure(go.Bar(
-        x=list(range(len(news_df))), y=news_df["compound"],
-        marker_color=bar_colors, hovertext=news_df["title"], hoverinfo="text+y"
-    ))
-    fig_bar.add_hline(y=0.05,  line_dash="dot", line_color="#00d4aa", annotation_text="+0.05")
-    fig_bar.add_hline(y=-0.05, line_dash="dot", line_color="#ff4b6e", annotation_text="-0.05")
-    fig_bar.update_layout(
-        template="plotly_dark", paper_bgcolor="#131929", plot_bgcolor="#131929",
-        margin=dict(l=0,r=0,t=10,b=0), height=200,
-        xaxis=dict(showticklabels=False, showgrid=False),
-        yaxis=dict(gridcolor="#1a2035", range=[-1.1,1.1])
-    )
-    st.plotly_chart(fig_bar, use_container_width=True)
+        fig_trend = go.Figure()
+        fig_trend.add_trace(go.Scatter(
+            x=trend_df["article_index"],
+            y=trend_df["compound"],
+            mode="lines+markers",
+            line=dict(color="#5c7cfa", width=2),
+            marker=dict(size=8),
+            name="Sentiment Score"
+        ))
+        fig_trend.add_hline(y=0, line_dash="dot", line_color="#444")
+        fig_trend.update_layout(
+            template="plotly_dark",
+            paper_bgcolor="#131929",
+            plot_bgcolor="#131929",
+            margin=dict(l=0, r=0, t=20, b=0),
+            height=260,
+            xaxis=dict(title="Article Order", showgrid=False),
+            yaxis=dict(title="Sentiment Score", gridcolor="#1a2035", range=[-1,1]),
+            showlegend=False
+        )
+        st.plotly_chart(fig_trend, use_container_width=True)
 
 # ── News Feed ─────────────────────────────────────────────────────────────────
 # Show which keyword was actually searched
@@ -1205,7 +1176,6 @@ if not news_df.empty:
     filtered = news_df if filt == "All" else news_df[news_df["label"] == filt]
     for _, row in filtered.iterrows():
         bc  = badge_class(row["label"])
-        fb  = f"FinBERT: {row['finbert']:+.2f} &nbsp;|&nbsp;" if FINBERT_AVAILABLE else ""
         st.markdown(f"""
         <div class='news-item'>
             <div class='news-title'>
@@ -1223,7 +1193,7 @@ else:
 # ── Raw data ──────────────────────────────────────────────────────────────────
 if not news_df.empty:
     with st.expander("🔍 Raw sentiment data"):
-        cols = ["source","title","label","compound","vader"] + (["finbert"] if FINBERT_AVAILABLE else [])
+        cols = ["source","title","label","compound","vader"]
         st.dataframe(
             news_df[cols],
             use_container_width=True
