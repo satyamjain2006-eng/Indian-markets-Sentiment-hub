@@ -870,7 +870,29 @@ def fetch_news(company_name: str) -> pd.DataFrame:
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_price(ticker: str, period: str) -> pd.DataFrame:
     try:
-        data = yf.download(ticker, period=period, progress=False, auto_adjust=True)
+        if period == "1d":
+            data = yf.download(
+                ticker,
+                period="1d",
+                interval="15m",
+                progress=False,
+                auto_adjust=True
+            )
+        elif period == "5d":
+            data = yf.download(
+                ticker,
+                period="5d",
+                interval="30m",
+                progress=False,
+                auto_adjust=True
+            )
+         else:
+             data = yf.download(
+                 ticker,
+                 period=period,
+                 progress=False,
+                 auto_adjust=True
+             )
         if isinstance(data.columns, pd.MultiIndex):
             data.columns = data.columns.get_level_values(0)
         return data.reset_index()
@@ -1062,11 +1084,12 @@ with st.sidebar:
             compare_ticker = CRYPTO[compare_name]
 
     st.markdown("---")
-    period = st.select_slider("Period", options=["1mo","3mo","6mo","1y","2y"], value="3mo")
-    st.markdown("---")
-    st.caption(f"Companies loaded: {len(all_companies):,}")
-    st.caption("News: Google News · ET · MoneyControl · LiveMint · Reuters")
-
+    period = st.select_slider(
+        "Period",
+        options=["1d","5d","1mo","3mo","6mo","1y","2y"],
+        value="1mo"
+    )
+    
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.markdown("# 📊 Indian Market Sentiment Hub")
