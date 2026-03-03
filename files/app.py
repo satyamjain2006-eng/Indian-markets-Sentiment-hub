@@ -534,7 +534,7 @@ def build_sentiment_trend(df: pd.DataFrame) -> go.Figure:
 
     def top5_titles(titles):
         items = list(titles)[:5]
-        text  = "<br>".join(f"• {t[:55]}…" if len(t) > 55 else f"• {t}" for t in items)
+        text  = "<br>".join(f"• {t[:60]}…" if len(t) > 60 else f"• {t}" for t in items)
         remaining = len(list(titles)) - 5
         if remaining > 0:
             text += f"<br><i>+{remaining} more…</i>"
@@ -550,63 +550,81 @@ def build_sentiment_trend(df: pd.DataFrame) -> go.Figure:
         .reset_index()
         .sort_values("date")
     )
+    daily["label"] = daily["avg_score"].apply(label_from_score)
+    daily["color"] = daily["label"].apply(sentiment_color)
 
-    # ── Expand to full 30-day calendar grid ───────────────────────────────────
-    today    = pd.Timestamp.now().normalize()
-    all_days = pd.date_range(end=today, periods=30, freq="D")
-    full     = pd.DataFrame({"date": all_days})
-    daily    = full.merge(daily, on="date", how="left")
-    daily["avg_score"]    = daily["avg_score"].fillna(0)
-    daily["article_count"]= daily["article_count"].fillna(0).astype(int)
-    daily["titles"]       = daily["titles"].fillna("No articles this day")
-    daily["label"]        = daily["avg_score"].apply(label_from_score)
-    daily["color"]        = daily["label"].apply(sentiment_color)
-    # ── 7-day rolling average ─────────────────────────────────────────────────
-    daily["rolling7"]     = daily["avg_score"].rolling(7, min_periods=1).mean()
+    # Bubble size: scale article count to reasonable px range (min 18, max 60)
+    max_count = daily["article_count"].max() if daily["article_count"].max() > 0 else 1
+    daily["bubble_size"] = 18 + (daily["article_count"] / max_count) * 42
 
     fig = go.Figure()
 
-    # Daily bars
-    fig.add_trace(go.Bar(
-        x=daily["date"], y=daily["avg_score"], name="Daily Avg",
-        marker_color=daily["color"], opacity=0.6,
-        customdata=np.stack([daily["titles"], daily["article_count"]], axis=1),
-        hovertemplate=(
-            "<b>%{x|%d %B %Y}</b><br>"
-            "Avg Score: <b>%{y:.3f}</b>  |  Articles: %{customdata[1]}<br>"
-            "%{customdata[0]}<extra></extra>"
-        ),
-    ))
-
-    # 7-day rolling average line
-    fig.add_trace(go.Scatter(
-        x=daily["date"], y=daily["rolling7"], name="7-day MA", mode="lines",
-        line=dict(color="#5c7cfa", width=2.5, shape="spline", smoothing=0.6),
-        hovertemplate="7d MA: <b>%{y:.3f}</b><extra></extra>",
-    ))
-
+    # ── Zero line band ────────────────────────────────────────────────────────
+    fig.add_hrect(y0=-0.07, y1=0.07, fillcolor="rgba(255,255,255,0.02)",
+                  line_width=0, layer="below")
     fig.add_hline(y=0,     line_dash="dot", line_color="#2a3560",              line_width=1)
-    fig.add_hline(y=0.07,  line_dash="dot", line_color="rgba(0,212,170,0.25)", line_width=1)
-    fig.add_hline(y=-0.07, line_dash="dot", line_color="rgba(255,75,110,0.25)",line_width=1)
+    fig.add_hline(y=0.07,  line_dash="dot", line_color="rgba(0,212,170,0.3)",  line_width=1)
+    fig.add_hline(y=-0.07, line_dash="dot", line_color="rgba(255,75,110,0.3)", line_width=1)
+
+    # ── Connector line between bubbles ────────────────────────────────────────
+    fig.add_trace(go.Scatter(
+        x=daily["date"], y=daily["avg_score"],
+        mode="lines",
+        line=dict(color="rgba(92,124,250,0.3)", width=1.5, dash="dot"),
+        hoverinfo="skip", showlegend=False,
+    ))
+
+    # ── Bubbles — one per day ─────────────────────────────────────────────────
+    for label, color in [("Positive","#00d4aa"),("Negative","#ff4b6e"),("Neutral","#ffd166")]:
+        mask = daily["label"] == label
+        sub  = daily[mask]
+        if sub.empty:
+            continue
+        fig.add_trace(go.Scatter(
+            x=sub["date"],
+            y=sub["avg_score"],
+            mode="markers",
+            name=label,
+            marker=dict(
+                size=sub["bubble_size"],
+                color=color,
+                opacity=0.85,
+                line=dict(color="rgba(255,255,255,0.15)", width=1),
+                sizemode="diameter",
+            ),
+            customdata=np.stack([sub["titles"], sub["article_count"], sub["avg_score"]], axis=1),
+            hovertemplate=(
+                "<b>%{x|%d %B %Y}</b><br>"
+                "Sentiment: <b>%{customdata[2]:.3f}</b> — " + label + "<br>"
+                "Articles: <b>%{customdata[1]}</b><br>"
+                "%{customdata[0]}<extra></extra>"
+            ),
+        ))
 
     fig.update_layout(
         template="plotly_dark", paper_bgcolor="#0e1320", plot_bgcolor="#0e1320",
-        margin=dict(l=10, r=10, t=40, b=50), height=340,
-        title=dict(text="<b>30-Day Sentiment  ·  7-Day Moving Average</b>",
-                   font=dict(size=13, color="#c0cce0"), x=0.01, xanchor="left"),
+        margin=dict(l=10, r=10, t=44, b=50), height=360,
+        title=dict(
+            text="<b>Sentiment Bubbles</b>  <span style='font-size:11px;color:#6b7a99'>· size = article volume</span>",
+            font=dict(size=13, color="#c0cce0"), x=0.01, xanchor="left"
+        ),
         xaxis=dict(
             showgrid=False, color="#4a5568",
             tickformat="%d %b",
             tickangle=-35,
-            dtick=3 * 86400000,   # one tick every 3 days (ms)
-            range=[all_days[0] - pd.Timedelta(hours=12),
-                   all_days[-1] + pd.Timedelta(hours=12)],
+            nticks=10, tickmode="auto",
         ),
-        yaxis=dict(gridcolor="#1a2035", range=[-1.1, 1.1],
-                   color="#4a5568", zeroline=False, side="right"),
-        legend=dict(orientation="h", y=1.08, x=0.5, xanchor="center",
-                    font=dict(size=10, color="#8892a4"), bgcolor="rgba(0,0,0,0)"),
-        bargap=0.15, hovermode="x unified",
+        yaxis=dict(
+            gridcolor="#1a2035", range=[-1.15, 1.15],
+            color="#4a5568", zeroline=False, side="right",
+            tickvals=[-1, -0.5, 0, 0.5, 1],
+            ticktext=["−1", "−0.5", "0", "+0.5", "+1"],
+        ),
+        legend=dict(
+            orientation="h", y=1.1, x=0.5, xanchor="center",
+            font=dict(size=10, color="#8892a4"), bgcolor="rgba(0,0,0,0)",
+        ),
+        hovermode="closest",
         hoverlabel=dict(
             bgcolor="#1a2035", bordercolor="#2a3560",
             font=dict(size=12, color="#e0e6f0"), namelength=0,
