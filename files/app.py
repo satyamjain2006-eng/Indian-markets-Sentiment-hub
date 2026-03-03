@@ -9,6 +9,7 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import requests
 import io
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -423,21 +424,19 @@ def fetch_news(company_name: str) -> pd.DataFrame:
     def is_relevant(title: str) -> bool:
         return any(term in title.lower() for term in search_terms)
 
-    seen_titles   = set()
-    all_articles  = []
     indian_sources = {"Economic Times", "MoneyControl", "LiveMint", "Reuters"}
 
-    for source, url in rss_urls.items():
+    # ── Fetch one source, return list of raw article dicts ───────────────────
+    def fetch_source(source: str, url: str) -> list:
+        articles = []
         try:
             if source in indian_sources:
                 for art in parse_rss2json(url, source):
-                    title = art["title"]
-                    if not title or title in seen_titles:
-                        continue
-                    seen_titles.add(title)
-                    art["keyword"]  = keyword
-                    art["relevant"] = is_relevant(title)
-                    all_articles.append(art)
+                    title = art.get("title", "").strip()
+                    if title:
+                        art["keyword"]  = keyword
+                        art["relevant"] = is_relevant(title)
+                        articles.append(art)
             else:
                 feed = feedparser.parse(url)
                 for entry in feed.entries[:15]:
@@ -446,24 +445,43 @@ def fetch_news(company_name: str) -> pd.DataFrame:
                     if " - " in title:
                         title, display_source = title.rsplit(" - ", 1)
                         title = title.strip()
-                    if not title or title in seen_titles:
-                        continue
-                    seen_titles.add(title)
-                    all_articles.append({
-                        "source":    display_source,
-                        "title":     title,
-                        "keyword":   keyword,
-                        "relevant":  is_relevant(title),
-                        "published": entry.get("published", entry.get("updated", ""))[:25],
-                        "link":      entry.get("link", "#"),
-                    })
+                    if title:
+                        articles.append({
+                            "source":    display_source,
+                            "title":     title,
+                            "keyword":   keyword,
+                            "relevant":  is_relevant(title),
+                            "published": entry.get("published", entry.get("updated", ""))[:25],
+                            "link":      entry.get("link", "#"),
+                        })
         except Exception:
-            continue
+            pass
+        return articles
+
+    # ── Fire all 7 sources in parallel ───────────────────────────────────────
+    all_articles = []
+    with ThreadPoolExecutor(max_workers=7) as executor:
+        futures = {executor.submit(fetch_source, src, url): src
+                   for src, url in rss_urls.items()}
+        for future in as_completed(futures):
+            try:
+                all_articles.extend(future.result())
+            except Exception:
+                pass
 
     if not all_articles:
         return pd.DataFrame()
 
-    df = pd.DataFrame(all_articles)
+    # ── Deduplicate by title ──────────────────────────────────────────────────
+    seen_titles = set()
+    deduped = []
+    for art in all_articles:
+        title = art.get("title", "")
+        if title and title not in seen_titles:
+            seen_titles.add(title)
+            deduped.append(art)
+
+    df = pd.DataFrame(deduped)
     relevant = df[df["relevant"] == True]
     df = relevant if len(relevant) >= 5 else df
     df = df.drop(columns=["relevant"], errors="ignore").reset_index(drop=True)
@@ -920,10 +938,13 @@ st.markdown(
 )
 st.markdown("---")
 
-# ── Fetch data ────────────────────────────────────────────────────────────────
+# ── Fetch data — price and news in parallel ───────────────────────────────────
 with st.spinner(f"Loading {primary_name}…"):
-    price_df = fetch_price(primary_ticker, period)
-    news_df  = fetch_news(primary_name)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        fut_price = executor.submit(fetch_price, primary_ticker, period)
+        fut_news  = executor.submit(fetch_news, primary_name)
+        price_df  = fut_price.result()
+        news_df   = fut_news.result()
 
 # ── KPI Row ───────────────────────────────────────────────────────────────────
 c1, c2, c3, c4, c5 = st.columns(5)
@@ -961,10 +982,14 @@ else:
     st.warning("Price data unavailable. Check the ticker or try BSE (.BO) instead of NSE (.NS).")
 
 # ── Cross Asset Comparison Chart ──────────────────────────────────────────────
+# Opt 2: parallel fetch — only fires when toggle ON and both assets resolved (Opt 5)
 if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
     with st.spinner(f"Loading {ca_name_a} vs {ca_name_b}…"):
-        ca_df_a = fetch_price(ca_ticker_a, period)
-        ca_df_b = fetch_price(ca_ticker_b, period)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            fut_a = executor.submit(fetch_price, ca_ticker_a, period)
+            fut_b = executor.submit(fetch_price, ca_ticker_b, period)
+            ca_df_a = fut_a.result()
+            ca_df_b = fut_b.result()
 
     if not ca_df_a.empty and not ca_df_b.empty:
         st.markdown(f"### 🔀 {ca_name_a} vs {ca_name_b}")
