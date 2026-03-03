@@ -725,10 +725,152 @@ if not price_df.empty:
 else:
     st.warning("Price data unavailable. Check the ticker or try BSE (.BO) instead of NSE (.NS).")
 
-# ── Comparison ────────────────────────────────────────────────────────────────
+# ── Same-class Comparison ─────────────────────────────────────────────────────
 if compare_on and compare_name and not compare_df.empty:
     st.markdown(f"### ⚖️ {primary_name} vs {compare_name}")
     st.plotly_chart(build_comparison_chart(price_df, compare_df, primary_name, compare_name), use_container_width=True)
+
+# ── Cross Asset Comparison ─────────────────────────────────────────────────────
+st.markdown("### 🔀 Cross Asset Comparison")
+st.caption("Compare any two assets across stocks, commodities, crypto and indices — normalised to 100.")
+
+# Build a flat lookup of all available assets
+CROSS_ASSET_OPTIONS = {}
+# Indices
+CROSS_ASSET_OPTIONS["📈 Nifty 50"]        = "^NSEI"
+CROSS_ASSET_OPTIONS["📈 Sensex"]          = "^BSESN"
+CROSS_ASSET_OPTIONS["📈 Nifty Bank"]      = "^NSEBANK"
+# MCX Commodities
+for k, v in MCX.items():
+    CROSS_ASSET_OPTIONS[f"🏅 {k}"] = v
+# Crypto
+for k, v in CRYPTO.items():
+    CROSS_ASSET_OPTIONS[f"₿ {k}"] = v
+
+with st.expander("⚙️ Configure Cross Asset Comparison", expanded=False):
+    ca_col1, ca_col2 = st.columns(2)
+
+    with ca_col1:
+        st.markdown("**Asset A**")
+        ca_class1 = st.radio("Type A", ["📈 Index", "🏅 Commodity", "₿ Crypto", "🇮🇳 NSE/BSE Stock"],
+                              key="ca_class1", horizontal=False, label_visibility="collapsed")
+        if ca_class1 == "🇮🇳 NSE/BSE Stock":
+            ca_query1 = st.text_input("Search stock A", placeholder="e.g. Reliance, TCS…",
+                                       key="ca_q1", label_visibility="collapsed")
+            if ca_query1:
+                ca_results1 = search_companies(ca_query1, all_companies)
+                for _, row in ca_results1.iterrows():
+                    if st.button(f"{row['name']} [{row['symbol']}]", key=f"ca1_{row['symbol']}",
+                                 use_container_width=True):
+                        st.session_state.ca_name1   = row["name"]
+                        st.session_state.ca_ticker1 = row["yf_ns"]
+            if "ca_name1" in st.session_state:
+                st.success(f"✅ {st.session_state.ca_name1}")
+        else:
+            # Filter options by selected class
+            prefix_map = {"📈 Index": "📈", "🏅 Commodity": "🏅", "₿ Crypto": "₿"}
+            prefix = prefix_map[ca_class1]
+            filtered1 = {k: v for k, v in CROSS_ASSET_OPTIONS.items() if k.startswith(prefix)}
+            ca_pick1 = st.selectbox("Pick Asset A", list(filtered1.keys()),
+                                     key="ca_pick1", label_visibility="collapsed")
+            st.session_state.ca_name1   = ca_pick1
+            st.session_state.ca_ticker1 = filtered1[ca_pick1]
+
+    with ca_col2:
+        st.markdown("**Asset B**")
+        ca_class2 = st.radio("Type B", ["📈 Index", "🏅 Commodity", "₿ Crypto", "🇮🇳 NSE/BSE Stock"],
+                              key="ca_class2", horizontal=False, label_visibility="collapsed",
+                              index=2)  # default to Crypto
+        if ca_class2 == "🇮🇳 NSE/BSE Stock":
+            ca_query2 = st.text_input("Search stock B", placeholder="e.g. Adani, HDFC…",
+                                       key="ca_q2", label_visibility="collapsed")
+            if ca_query2:
+                ca_results2 = search_companies(ca_query2, all_companies)
+                for _, row in ca_results2.iterrows():
+                    if st.button(f"{row['name']} [{row['symbol']}]", key=f"ca2_{row['symbol']}",
+                                 use_container_width=True):
+                        st.session_state.ca_name2   = row["name"]
+                        st.session_state.ca_ticker2 = row["yf_ns"]
+            if "ca_name2" in st.session_state:
+                st.success(f"✅ {st.session_state.ca_name2}")
+        else:
+            prefix_map = {"📈 Index": "📈", "🏅 Commodity": "🏅", "₿ Crypto": "₿"}
+            prefix = prefix_map[ca_class2]
+            filtered2 = {k: v for k, v in CROSS_ASSET_OPTIONS.items() if k.startswith(prefix)}
+            ca_pick2 = st.selectbox("Pick Asset B", list(filtered2.keys()),
+                                     key="ca_pick2", label_visibility="collapsed",
+                                     index=1)  # default to Ethereum
+            st.session_state.ca_name2   = ca_pick2
+            st.session_state.ca_ticker2 = filtered2[ca_pick2]
+
+    ca_period = st.select_slider("Comparison Period",
+                                  options=["1mo","3mo","6mo","1y","2y"], value="3mo",
+                                  key="ca_period")
+    run_cross = st.button("🔀 Compare Now", use_container_width=True, type="primary")
+
+# Run comparison when button pressed
+if run_cross or st.session_state.get("ca_ran"):
+    st.session_state.ca_ran = True
+    ca_name1   = st.session_state.get("ca_name1", "🏅 Gold")
+    ca_ticker1 = st.session_state.get("ca_ticker1", "GC=F")
+    ca_name2   = st.session_state.get("ca_name2", "₿ Bitcoin")
+    ca_ticker2 = st.session_state.get("ca_ticker2", "BTC-USD")
+    ca_period  = st.session_state.get("ca_period", "3mo")
+
+    with st.spinner(f"Loading {ca_name1} vs {ca_name2}…"):
+        ca_df1 = fetch_price(ca_ticker1, ca_period)
+        ca_df2 = fetch_price(ca_ticker2, ca_period)
+
+    if not ca_df1.empty and not ca_df2.empty:
+        # Normalised comparison chart
+        fig_ca = go.Figure()
+        for df, label, color in [
+            (ca_df1, ca_name1, "#5c7cfa"),
+            (ca_df2, ca_name2, "#00d4aa"),
+        ]:
+            norm = df["Close"].astype(float) / df["Close"].astype(float).iloc[0] * 100
+            fig_ca.add_trace(go.Scatter(
+                x=df["Date"], y=norm, name=label,
+                line=dict(color=color, width=2),
+                hovertemplate="%{y:.1f}<extra>" + label + "</extra>"
+            ))
+        fig_ca.update_layout(
+            template="plotly_dark", paper_bgcolor="#131929", plot_bgcolor="#131929",
+            margin=dict(l=0, r=0, t=40, b=0), height=380,
+            title=dict(
+                text=f"<b>{ca_name1}  vs  {ca_name2}</b> — Normalised to 100",
+                font=dict(size=14, color="#8892c4")
+            ),
+            yaxis=dict(title="Normalised Price", gridcolor="#1a2035"),
+            xaxis=dict(showgrid=False),
+            legend=dict(orientation="h", y=1.12, font=dict(size=11)),
+        )
+        st.plotly_chart(fig_ca, use_container_width=True)
+
+        # Correlation stat
+        try:
+            merged = pd.merge(
+                ca_df1[["Date","Close"]].rename(columns={"Close":"A"}),
+                ca_df2[["Date","Close"]].rename(columns={"Close":"B"}),
+                on="Date", how="inner"
+            )
+            if len(merged) > 5:
+                corr = merged["A"].corr(merged["B"])
+                corr_label = "Strong positive" if corr > 0.7 else                              "Moderate positive" if corr > 0.3 else                              "Weak / no" if corr > -0.3 else                              "Moderate negative" if corr > -0.7 else "Strong negative"
+                corr_color = "#00d4aa" if corr > 0.3 else "#ff4b6e" if corr < -0.3 else "#ffd166"
+                st.markdown(
+                    f"<div style='text-align:center;padding:10px;background:#131929;"
+                    f"border-radius:10px;border:1px solid #1e2640'>"
+                    f"<span style='color:#6b7a99;font-size:0.8rem'>CORRELATION</span><br>"
+                    f"<span style='color:{corr_color};font-size:1.6rem;font-weight:700'>{corr:+.2f}</span>"
+                    f"&nbsp;&nbsp;<span style='color:{corr_color};font-size:0.9rem'>{corr_label} correlation</span>"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
+        except Exception:
+            pass
+    else:
+        st.warning("Could not load data for one or both assets. Try a different period.")
 
 # ── Sentiment Analysis ────────────────────────────────────────────────────────
 st.markdown("### 🧠 Sentiment Analysis")
