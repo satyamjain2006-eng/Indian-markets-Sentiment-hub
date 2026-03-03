@@ -925,8 +925,6 @@ with st.sidebar:
 
         compare_name   = st.session_state.get("ca_name1", "₿ Bitcoin")
         compare_ticker = st.session_state.get("ca_ticker1", "BTC-USD")
-    st.markdown("---")
-    period = st.select_slider("Period", options=["1d","5d","1mo","3mo","6mo","1y","2y"], value="1mo")
 
     # ── Cross Asset Comparison ────────────────────────────────────────────────
     st.markdown("---")
