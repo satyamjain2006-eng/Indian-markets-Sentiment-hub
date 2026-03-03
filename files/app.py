@@ -16,7 +16,7 @@ warnings.filterwarnings("ignore")
 
 try:
     import os
-    _icon = Image.open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.png"))
+    _icon = Image.open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon_cropped.png"))
 except Exception:
     _icon = "📊"  # fallback if icon.png is missing
 
@@ -793,7 +793,7 @@ with st.sidebar:
     with col_logo:
         try:
             import os as _os
-            st.image(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "icon.png"), width=52)
+            st.image(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "icon_cropped.png"), width=64)
         except Exception:
             st.markdown("📊")
     with col_title:
@@ -1050,7 +1050,7 @@ col_h1, col_h2 = st.columns([1, 14])
 with col_h1:
     try:
         import os as _os
-        st.image(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "icon.png"), width=52)
+        st.image(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "icon_cropped.png"), width=64)
     except Exception:
         pass
 with col_h2:
