@@ -67,6 +67,74 @@ CRYPTO = {
     "Dogecoin":"DOGE-USD","Avalanche":"AVAX-USD","Polkadot":"DOT-USD","Chainlink":"LINK-USD"
 }
 
+# ── Forex pairs (all quoted vs USD unless noted) ───────────────────────────────
+# Format: "Base/Quote (Description)" -> yfinance ticker
+FOREX = {
+    # ── Major pairs (vs USD) ──────────────────────────────────────────────────
+    "USD/INR  · US Dollar → Indian Rupee":        "INR=X",
+    "EUR/USD  · Euro → US Dollar":                "EURUSD=X",
+    "GBP/USD  · British Pound → US Dollar":       "GBPUSD=X",
+    "USD/JPY  · US Dollar → Japanese Yen":        "JPY=X",
+    "USD/CHF  · US Dollar → Swiss Franc":         "CHF=X",
+    "AUD/USD  · Australian Dollar → US Dollar":   "AUDUSD=X",
+    "NZD/USD  · New Zealand Dollar → US Dollar":  "NZDUSD=X",
+    "USD/CAD  · US Dollar → Canadian Dollar":     "CAD=X",
+    # ── Asian currencies ─────────────────────────────────────────────────────
+    "USD/CNY  · US Dollar → Chinese Yuan":        "CNY=X",
+    "USD/HKD  · US Dollar → Hong Kong Dollar":    "HKD=X",
+    "USD/SGD  · US Dollar → Singapore Dollar":    "SGD=X",
+    "USD/KRW  · US Dollar → South Korean Won":    "KRW=X",
+    "USD/TWD  · US Dollar → Taiwan Dollar":       "TWD=X",
+    "USD/MYR  · US Dollar → Malaysian Ringgit":   "MYR=X",
+    "USD/THB  · US Dollar → Thai Baht":           "THB=X",
+    "USD/PHP  · US Dollar → Philippine Peso":     "PHP=X",
+    "USD/IDR  · US Dollar → Indonesian Rupiah":   "IDR=X",
+    "USD/BDT  · US Dollar → Bangladeshi Taka":    "BDT=X",
+    "USD/PKR  · US Dollar → Pakistani Rupee":     "PKR=X",
+    "USD/LKR  · US Dollar → Sri Lankan Rupee":    "LKR=X",
+    "USD/NPR  · US Dollar → Nepalese Rupee":      "NPR=X",
+    "USD/VND  · US Dollar → Vietnamese Dong":     "VND=X",
+    # ── Middle East & Africa ─────────────────────────────────────────────────
+    "USD/AED  · US Dollar → UAE Dirham":          "AED=X",
+    "USD/SAR  · US Dollar → Saudi Riyal":         "SAR=X",
+    "USD/QAR  · US Dollar → Qatari Riyal":        "QAR=X",
+    "USD/KWD  · US Dollar → Kuwaiti Dinar":       "KWD=X",
+    "USD/BHD  · US Dollar → Bahraini Dinar":      "BHD=X",
+    "USD/OMR  · US Dollar → Omani Rial":          "OMR=X",
+    "USD/ILS  · US Dollar → Israeli Shekel":      "ILS=X",
+    "USD/TRY  · US Dollar → Turkish Lira":        "TRY=X",
+    "USD/EGP  · US Dollar → Egyptian Pound":      "EGP=X",
+    "USD/ZAR  · US Dollar → South African Rand":  "ZAR=X",
+    "USD/NGN  · US Dollar → Nigerian Naira":      "NGN=X",
+    "USD/KES  · US Dollar → Kenyan Shilling":     "KES=X",
+    # ── European (non-Euro) ───────────────────────────────────────────────────
+    "USD/SEK  · US Dollar → Swedish Krona":       "SEK=X",
+    "USD/NOK  · US Dollar → Norwegian Krone":     "NOK=X",
+    "USD/DKK  · US Dollar → Danish Krone":        "DKK=X",
+    "USD/PLN  · US Dollar → Polish Zloty":        "PLN=X",
+    "USD/CZK  · US Dollar → Czech Koruna":        "CZK=X",
+    "USD/HUF  · US Dollar → Hungarian Forint":    "HUF=X",
+    "USD/RON  · US Dollar → Romanian Leu":        "RON=X",
+    "USD/RUB  · US Dollar → Russian Ruble":       "RUB=X",
+    "USD/UAH  · US Dollar → Ukrainian Hryvnia":   "UAH=X",
+    # ── Americas ─────────────────────────────────────────────────────────────
+    "USD/BRL  · US Dollar → Brazilian Real":      "BRL=X",
+    "USD/MXN  · US Dollar → Mexican Peso":        "MXN=X",
+    "USD/ARS  · US Dollar → Argentine Peso":      "ARS=X",
+    "USD/CLP  · US Dollar → Chilean Peso":        "CLP=X",
+    "USD/COP  · US Dollar → Colombian Peso":      "COP=X",
+    "USD/PEN  · US Dollar → Peruvian Sol":        "PEN=X",
+    # ── Cross pairs (non-USD) ─────────────────────────────────────────────────
+    "EUR/INR  · Euro → Indian Rupee":             "EURINR=X",
+    "GBP/INR  · British Pound → Indian Rupee":    "GBPINR=X",
+    "JPY/INR  · Japanese Yen → Indian Rupee":     "JPYINR=X",
+    "EUR/GBP  · Euro → British Pound":            "EURGBP=X",
+    "EUR/JPY  · Euro → Japanese Yen":             "EURJPY=X",
+    "GBP/JPY  · British Pound → Japanese Yen":    "GBPJPY=X",
+    "AUD/JPY  · Australian Dollar → Japanese Yen":"AUDJPY=X",
+    "EUR/CHF  · Euro → Swiss Franc":              "EURCHF=X",
+}
+
 # ── Indices (always available, not in NSE CSV) ───────────────────────────────
 INDICES = [
     ("NIFTY50",  "Nifty 50",         "^NSEI",   "^NSEI"),
@@ -631,7 +699,7 @@ with st.sidebar:
 
     asset_class = st.radio(
         "Asset Class",
-        ["🇮🇳 NSE / BSE Stocks", "🏅 MCX Commodities", "₿ Crypto"],
+        ["🇮🇳 NSE / BSE Stocks", "🏅 MCX Commodities", "₿ Crypto", "💱 Forex"],
         label_visibility="collapsed"
     )
     st.markdown("---")
@@ -685,9 +753,50 @@ with st.sidebar:
         primary_name   = st.selectbox("Select Commodity", list(MCX.keys()), label_visibility="collapsed")
         primary_ticker = MCX[primary_name]
 
-    else:
+    elif asset_class == "₿ Crypto":
         primary_name   = st.selectbox("Select Crypto", list(CRYPTO.keys()), label_visibility="collapsed")
         primary_ticker = CRYPTO[primary_name]
+
+    else:  # 💱 Forex
+        # Group by region for easier browsing
+        st.markdown("**🔍 Search Currency Pair**")
+        fx_query = st.text_input("Type currency or country",
+            placeholder="e.g. INR, Euro, JPY, Dollar…",
+            key="fx_search", label_visibility="collapsed")
+
+        if fx_query:
+            q = fx_query.strip().lower()
+            fx_matches = {k: v for k, v in FOREX.items()
+                         if q in k.lower()}
+            if fx_matches:
+                primary_name   = st.selectbox("Results", list(fx_matches.keys()),
+                                               label_visibility="collapsed")
+                primary_ticker = fx_matches[primary_name]
+            else:
+                st.caption("No matching pairs found.")
+                primary_name   = "USD/INR  · US Dollar → Indian Rupee"
+                primary_ticker = "INR=X"
+        else:
+            # Show grouped by region
+            fx_region = st.selectbox("Region", [
+                "🌍 Major Pairs", "🌏 Asian", "🌍 Middle East & Africa",
+                "🇪🇺 European", "🌎 Americas", "🔀 Cross Pairs (non-USD)"
+            ], label_visibility="collapsed")
+
+            region_filter = {
+                "🌍 Major Pairs":              ["USD/INR","EUR/USD","GBP/USD","USD/JPY","USD/CHF","AUD/USD","NZD/USD","USD/CAD"],
+                "🌏 Asian":                    ["USD/CNY","USD/HKD","USD/SGD","USD/KRW","USD/TWD","USD/MYR","USD/THB","USD/PHP","USD/IDR","USD/BDT","USD/PKR","USD/LKR","USD/NPR","USD/VND"],
+                "🌍 Middle East & Africa":     ["USD/AED","USD/SAR","USD/QAR","USD/KWD","USD/BHD","USD/OMR","USD/ILS","USD/TRY","USD/EGP","USD/ZAR","USD/NGN","USD/KES"],
+                "🇪🇺 European":               ["USD/SEK","USD/NOK","USD/DKK","USD/PLN","USD/CZK","USD/HUF","USD/RON","USD/RUB","USD/UAH"],
+                "🌎 Americas":                 ["USD/BRL","USD/MXN","USD/ARS","USD/CLP","USD/COP","USD/PEN"],
+                "🔀 Cross Pairs (non-USD)":    ["EUR/INR","GBP/INR","JPY/INR","EUR/GBP","EUR/JPY","GBP/JPY","AUD/JPY","EUR/CHF"],
+            }
+            prefix_list = region_filter[fx_region]
+            fx_subset = {k: v for k, v in FOREX.items()
+                        if any(k.startswith(p) for p in prefix_list)}
+            primary_name   = st.selectbox("Pair", list(fx_subset.keys()),
+                                           label_visibility="collapsed")
+            primary_ticker = fx_subset.get(primary_name, "INR=X")
 
     st.markdown("---")
     period = st.select_slider("Period", options=["1d","5d","1mo","3mo","6mo","1y","2y"], value="1mo")
@@ -708,10 +817,12 @@ with st.sidebar:
         CROSS_ASSET_OPTIONS[f"🏅 {k}"] = v
     for k, v in CRYPTO.items():
         CROSS_ASSET_OPTIONS[f"₿ {k}"] = v
+    for k, v in FOREX.items():
+        CROSS_ASSET_OPTIONS[f"💱 {k}"] = v
 
     if compare_on:
         st.markdown("**Asset A**")
-        ca_class1 = st.radio("Class A", ["📈 Index","🏅 Commodity","₿ Crypto","🇮🇳 Stock"],
+        ca_class1 = st.radio("Class A", ["📈 Index","🏅 Commodity","₿ Crypto","💱 Forex","🇮🇳 Stock"],
                               key="ca_class1", horizontal=True, label_visibility="collapsed")
         if ca_class1 == "🇮🇳 Stock":
             ca_q1 = st.text_input("Search Asset A", placeholder="e.g. Reliance…",
@@ -724,7 +835,7 @@ with st.sidebar:
                         st.session_state.ca_name1   = row["name"]
                         st.session_state.ca_ticker1 = row["yf_ns"]
         else:
-            prefix = {"📈 Index":"📈","🏅 Commodity":"🏅","₿ Crypto":"₿"}[ca_class1]
+            prefix = {"📈 Index":"📈","🏅 Commodity":"🏅","₿ Crypto":"₿","💱 Forex":"💱"}[ca_class1]
             opts1 = {k: v for k, v in CROSS_ASSET_OPTIONS.items() if k.startswith(prefix)}
             pick1 = st.selectbox("Asset A", list(opts1.keys()),
                                   key="ca_pick1", label_visibility="collapsed")
@@ -735,7 +846,7 @@ with st.sidebar:
             st.caption(f"A: {st.session_state.ca_name1}")
 
         st.markdown("**Asset B**")
-        ca_class2 = st.radio("Class B", ["📈 Index","🏅 Commodity","₿ Crypto","🇮🇳 Stock"],
+        ca_class2 = st.radio("Class B", ["📈 Index","🏅 Commodity","₿ Crypto","💱 Forex","🇮🇳 Stock"],
                               key="ca_class2", horizontal=True, label_visibility="collapsed",
                               index=2)
         if ca_class2 == "🇮🇳 Stock":
@@ -749,7 +860,7 @@ with st.sidebar:
                         st.session_state.ca_name2   = row["name"]
                         st.session_state.ca_ticker2 = row["yf_ns"]
         else:
-            prefix = {"📈 Index":"📈","🏅 Commodity":"🏅","₿ Crypto":"₿"}[ca_class2]
+            prefix = {"📈 Index":"📈","🏅 Commodity":"🏅","₿ Crypto":"₿","💱 Forex":"💱"}[ca_class2]
             opts2 = {k: v for k, v in CROSS_ASSET_OPTIONS.items() if k.startswith(prefix)}
             pick2 = st.selectbox("Asset B", list(opts2.keys()),
                                   key="ca_pick2", label_visibility="collapsed", index=1)
@@ -796,6 +907,7 @@ avg_sent = news_df["compound"].mean() if not news_df.empty else 0
 overall  = label_from_score(avg_sent)
 sent_col = {"Positive":"positive","Negative":"negative","Neutral":"neutral"}[overall]
 pct_col  = "positive" if pct >= 0 else "negative"
+is_forex = asset_class == "💱 Forex" if "asset_class" in dir() else "=X" in primary_ticker
 currency = "₹" if ".NS" in primary_ticker or ".BO" in primary_ticker else ""
 
 with c1:
