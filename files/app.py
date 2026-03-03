@@ -203,7 +203,7 @@ COMPANY_LIST = [
 ]
 
 # ── IMPORTANT: Replace with your actual GitHub username and repo name ─────────
-GITHUB_CSV_URL = "https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO_NAME/main/EQUITY_L.csv"
+GITHUB_CSV_URL = "https://raw.githubusercontent.com/satyamjain2006-eng/Indian-markets-Sentiment-hub/main/EQUITY_L.csv"
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def load_indian_companies() -> pd.DataFrame:
