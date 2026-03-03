@@ -530,7 +530,7 @@ def build_price_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
 
 def build_sentiment_trend(df: pd.DataFrame) -> go.Figure:
     df = df.copy()
-    df["date"] = df["published_dt"].dt.date
+    df["date"] = pd.to_datetime(df["published_dt"].dt.date)
 
     def top5_titles(titles):
         items = list(titles)[:5]
@@ -550,52 +550,66 @@ def build_sentiment_trend(df: pd.DataFrame) -> go.Figure:
         .reset_index()
         .sort_values("date")
     )
-    daily["date"]    = pd.to_datetime(daily["date"])
-    daily["label"]   = daily["avg_score"].apply(label_from_score)
-    daily["color"]   = daily["label"].apply(sentiment_color)
-    daily["rolling"] = daily["avg_score"].rolling(3, min_periods=1).mean()
+
+    # ── Expand to full 30-day calendar grid ───────────────────────────────────
+    today    = pd.Timestamp.now().normalize()
+    all_days = pd.date_range(end=today, periods=30, freq="D")
+    full     = pd.DataFrame({"date": all_days})
+    daily    = full.merge(daily, on="date", how="left")
+    daily["avg_score"]    = daily["avg_score"].fillna(0)
+    daily["article_count"]= daily["article_count"].fillna(0).astype(int)
+    daily["titles"]       = daily["titles"].fillna("No articles this day")
+    daily["label"]        = daily["avg_score"].apply(label_from_score)
+    daily["color"]        = daily["label"].apply(sentiment_color)
+    # ── 7-day rolling average ─────────────────────────────────────────────────
+    daily["rolling7"]     = daily["avg_score"].rolling(7, min_periods=1).mean()
 
     fig = go.Figure()
+
+    # Daily bars
     fig.add_trace(go.Bar(
         x=daily["date"], y=daily["avg_score"], name="Daily Avg",
-        marker_color=daily["color"], opacity=0.65,
+        marker_color=daily["color"], opacity=0.6,
         customdata=np.stack([daily["titles"], daily["article_count"]], axis=1),
         hovertemplate=(
-            "<b>%{x|%d %b %Y}</b><br>"
+            "<b>%{x|%d %B %Y}</b><br>"
             "Avg Score: <b>%{y:.3f}</b>  |  Articles: %{customdata[1]}<br>"
             "%{customdata[0]}<extra></extra>"
         ),
     ))
+
+    # 7-day rolling average line
     fig.add_trace(go.Scatter(
-        x=daily["date"], y=daily["rolling"], name="Trend", mode="lines",
-        line=dict(color="#5c7cfa", width=2.5, shape="spline", smoothing=0.7),
-        hoverinfo="skip",
+        x=daily["date"], y=daily["rolling7"], name="7-day MA", mode="lines",
+        line=dict(color="#5c7cfa", width=2.5, shape="spline", smoothing=0.6),
+        hovertemplate="7d MA: <b>%{y:.3f}</b><extra></extra>",
     ))
-    fig.add_hline(y=0,     line_dash="dot", line_color="#333",                  line_width=1)
-    fig.add_hline(y=0.07,  line_dash="dot", line_color="rgba(0,212,170,0.3)",  line_width=1)
-    fig.add_hline(y=-0.07, line_dash="dot", line_color="rgba(255,75,110,0.3)", line_width=1)
+
+    fig.add_hline(y=0,     line_dash="dot", line_color="#2a3560",              line_width=1)
+    fig.add_hline(y=0.07,  line_dash="dot", line_color="rgba(0,212,170,0.25)", line_width=1)
+    fig.add_hline(y=-0.07, line_dash="dot", line_color="rgba(255,75,110,0.25)",line_width=1)
+
     fig.update_layout(
         template="plotly_dark", paper_bgcolor="#0e1320", plot_bgcolor="#0e1320",
-        margin=dict(l=10, r=10, t=40, b=40), height=320,
-        title=dict(text="<b>Daily Sentiment Trend</b>",
+        margin=dict(l=10, r=10, t=40, b=50), height=340,
+        title=dict(text="<b>30-Day Sentiment  ·  7-Day Moving Average</b>",
                    font=dict(size=13, color="#c0cce0"), x=0.01, xanchor="left"),
         xaxis=dict(
             showgrid=False, color="#4a5568",
             tickformat="%d %b",
-            tickangle=-30,
-            nticks=10,           # auto-space up to 10 ticks — no more single-date problem
-            tickmode="auto",
+            tickangle=-35,
+            dtick=3 * 86400000,   # one tick every 3 days (ms)
+            range=[all_days[0] - pd.Timedelta(hours=12),
+                   all_days[-1] + pd.Timedelta(hours=12)],
         ),
         yaxis=dict(gridcolor="#1a2035", range=[-1.1, 1.1],
                    color="#4a5568", zeroline=False, side="right"),
         legend=dict(orientation="h", y=1.08, x=0.5, xanchor="center",
                     font=dict(size=10, color="#8892a4"), bgcolor="rgba(0,0,0,0)"),
-        bargap=0.25, hovermode="x unified",
+        bargap=0.15, hovermode="x unified",
         hoverlabel=dict(
-            bgcolor="#1a2035",
-            bordercolor="#2a3560",
-            font=dict(size=12, color="#e0e6f0"),
-            namelength=0,
+            bgcolor="#1a2035", bordercolor="#2a3560",
+            font=dict(size=12, color="#e0e6f0"), namelength=0,
         ),
     )
     return fig
