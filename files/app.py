@@ -886,19 +886,21 @@ def fetch_price(ticker: str, period: str) -> pd.DataFrame:
                 progress=False,
                 auto_adjust=True
             )
-         else:
+        else:
             data = yf.download(
                 ticker,
                 period=period,
                 progress=False,
                 auto_adjust=True
             )
+
         if isinstance(data.columns, pd.MultiIndex):
             data.columns = data.columns.get_level_values(0)
+
         return data.reset_index()
+
     except Exception:
         return pd.DataFrame()
-
 # ── Technical indicators ──────────────────────────────────────────────────────
 def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty or "Close" not in df.columns:
