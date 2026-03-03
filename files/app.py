@@ -12,7 +12,6 @@ from datetime import datetime
 import warnings
 warnings.filterwarnings("ignore")
 
-# ── Page config MUST be first Streamlit command ───────────────────────────────
 st.set_page_config(
     page_title="Indian Market Sentiment Hub",
     page_icon="📊",
@@ -20,11 +19,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ── Auto-refresh every 60 seconds ─────────────────────────────────────────────
 from streamlit_autorefresh import st_autorefresh
 st_autorefresh(interval=60_000, limit=None, key="autorefresh")
 
-# ── CSS ───────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
     body, .main { background-color: #0a0e1a; color: #e0e6f0; }
@@ -56,7 +53,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ── MCX & Crypto ──────────────────────────────────────────────────────────────
 MCX = {
     "Gold":"GC=F","Silver":"SI=F","Crude Oil":"CL=F",
     "Natural Gas":"NG=F","Copper":"HG=F","Aluminium":"ALI=F"
@@ -67,10 +63,7 @@ CRYPTO = {
     "Dogecoin":"DOGE-USD","Avalanche":"AVAX-USD","Polkadot":"DOT-USD","Chainlink":"LINK-USD"
 }
 
-# ── Forex pairs (all quoted vs USD unless noted) ───────────────────────────────
-# Format: "Base/Quote (Description)" -> yfinance ticker
 FOREX = {
-    # ── Major pairs (vs USD) ──────────────────────────────────────────────────
     "USD/INR  · US Dollar → Indian Rupee":        "INR=X",
     "EUR/USD  · Euro → US Dollar":                "EURUSD=X",
     "GBP/USD  · British Pound → US Dollar":       "GBPUSD=X",
@@ -79,7 +72,6 @@ FOREX = {
     "AUD/USD  · Australian Dollar → US Dollar":   "AUDUSD=X",
     "NZD/USD  · New Zealand Dollar → US Dollar":  "NZDUSD=X",
     "USD/CAD  · US Dollar → Canadian Dollar":     "CAD=X",
-    # ── Asian currencies ─────────────────────────────────────────────────────
     "USD/CNY  · US Dollar → Chinese Yuan":        "CNY=X",
     "USD/HKD  · US Dollar → Hong Kong Dollar":    "HKD=X",
     "USD/SGD  · US Dollar → Singapore Dollar":    "SGD=X",
@@ -94,7 +86,6 @@ FOREX = {
     "USD/LKR  · US Dollar → Sri Lankan Rupee":    "LKR=X",
     "USD/NPR  · US Dollar → Nepalese Rupee":      "NPR=X",
     "USD/VND  · US Dollar → Vietnamese Dong":     "VND=X",
-    # ── Middle East & Africa ─────────────────────────────────────────────────
     "USD/AED  · US Dollar → UAE Dirham":          "AED=X",
     "USD/SAR  · US Dollar → Saudi Riyal":         "SAR=X",
     "USD/QAR  · US Dollar → Qatari Riyal":        "QAR=X",
@@ -107,7 +98,6 @@ FOREX = {
     "USD/ZAR  · US Dollar → South African Rand":  "ZAR=X",
     "USD/NGN  · US Dollar → Nigerian Naira":      "NGN=X",
     "USD/KES  · US Dollar → Kenyan Shilling":     "KES=X",
-    # ── European (non-Euro) ───────────────────────────────────────────────────
     "USD/SEK  · US Dollar → Swedish Krona":       "SEK=X",
     "USD/NOK  · US Dollar → Norwegian Krone":     "NOK=X",
     "USD/DKK  · US Dollar → Danish Krone":        "DKK=X",
@@ -117,14 +107,12 @@ FOREX = {
     "USD/RON  · US Dollar → Romanian Leu":        "RON=X",
     "USD/RUB  · US Dollar → Russian Ruble":       "RUB=X",
     "USD/UAH  · US Dollar → Ukrainian Hryvnia":   "UAH=X",
-    # ── Americas ─────────────────────────────────────────────────────────────
     "USD/BRL  · US Dollar → Brazilian Real":      "BRL=X",
     "USD/MXN  · US Dollar → Mexican Peso":        "MXN=X",
     "USD/ARS  · US Dollar → Argentine Peso":      "ARS=X",
     "USD/CLP  · US Dollar → Chilean Peso":        "CLP=X",
     "USD/COP  · US Dollar → Colombian Peso":      "COP=X",
     "USD/PEN  · US Dollar → Peruvian Sol":        "PEN=X",
-    # ── Cross pairs (non-USD) ─────────────────────────────────────────────────
     "EUR/INR  · Euro → Indian Rupee":             "EURINR=X",
     "GBP/INR  · British Pound → Indian Rupee":    "GBPINR=X",
     "JPY/INR  · Japanese Yen → Indian Rupee":     "JPYINR=X",
@@ -135,7 +123,6 @@ FOREX = {
     "EUR/CHF  · Euro → Swiss Franc":              "EURCHF=X",
 }
 
-# ── Indices (always available, not in NSE CSV) ───────────────────────────────
 INDICES = [
     ("NIFTY50",  "Nifty 50",         "^NSEI",   "^NSEI"),
     ("SENSEX",   "Sensex",           "^BSESN",  "^BSESN"),
@@ -143,8 +130,6 @@ INDICES = [
     ("NIFTYMID50","Nifty Midcap 50", "^NSEMDCP50","^NSEMDCP50"),
 ]
 
-# ── Fallback embedded list (~400 companies) ───────────────────────────────────
-# Used when GitHub CSV is unavailable. Covers all major NSE/BSE companies.
 COMPANY_LIST = [
     ("TCS","Tata Consultancy Services"),("INFY","Infosys"),("WIPRO","Wipro"),
     ("HCLTECH","HCL Technologies"),("TECHM","Tech Mahindra"),("LTIM","LTIMindtree"),
@@ -278,18 +263,11 @@ COMPANY_LIST = [
     ("KAYNES","Kaynes Technology India"),("MAPMYINDIA","CE Info Systems"),
 ]
 
-# ── IMPORTANT: Replace with your actual GitHub username and repo name ─────────
 GITHUB_CSV_URL = "https://raw.githubusercontent.com/satyamjain2006-eng/Indian-markets-Sentiment-hub/main/files/EQUITY_L.csv"
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def load_indian_companies() -> pd.DataFrame:
-    """
-    Loads the full NSE equity list from your GitHub-hosted CSV (~2000 companies).
-    Falls back to the embedded list (~400 companies) if that fails.
-    Cached for 24 hours so it only fetches once per day.
-    """
-    # ── Try GitHub-hosted CSV ─────────────────────────────────────────────
-    if "YOUR_USERNAME" not in GITHUB_CSV_URL:   # only attempt if URL is configured
+    if "YOUR_USERNAME" not in GITHUB_CSV_URL:
         try:
             resp = requests.get(GITHUB_CSV_URL, timeout=10)
             if resp.status_code == 200:
@@ -301,23 +279,19 @@ def load_indian_companies() -> pd.DataFrame:
                 live_df["yf_ns"]    = live_df["symbol"] + ".NS"
                 live_df["yf_bo"]    = live_df["symbol"] + ".BO"
                 live_df["exchange"] = "NSE/BSE"
-                # Prepend indices so they always appear at top of search
                 idx_df = pd.DataFrame(INDICES, columns=["symbol","name","yf_ns","yf_bo"])
                 idx_df["exchange"] = "Index"
                 df = pd.concat([idx_df, live_df], ignore_index=True)
                 return df.dropna().reset_index(drop=True)
         except Exception:
-            pass    # silently fall through to embedded list
+            pass
 
-    # ── Fall back to embedded list ────────────────────────────────────────
     df = pd.DataFrame(COMPANY_LIST, columns=["symbol", "name"])
     df["name"]     = df["name"].str.strip()
     df["symbol"]   = df["symbol"].str.strip()
     df["yf_ns"]    = df["symbol"] + ".NS"
     df["yf_bo"]    = df["symbol"] + ".BO"
     df["exchange"] = "NSE/BSE"
-
-    # Prepend indices so they always appear at top of search
     idx_df = pd.DataFrame(INDICES, columns=["symbol","name","yf_ns","yf_bo"])
     idx_df["exchange"] = "Index"
     df = pd.concat([idx_df, df], ignore_index=True)
@@ -341,7 +315,6 @@ def search_companies(query: str, df: pd.DataFrame, top_n: int = 12) -> pd.DataFr
     return pd.concat([p1, p2, p3, p4]).head(top_n).reset_index(drop=True)
 
 
-# ── News Sources ──────────────────────────────────────────────────────────────
 def get_rss_urls(keyword: str, symbol: str) -> dict:
     gn_base = "https://news.google.com/rss/search?hl=en-IN&gl=IN&ceid=IN:en&q="
     urls = {
@@ -382,7 +355,6 @@ def parse_rss2json(url: str, source_name: str) -> list:
         return []
 
 
-# ── Keyword alias map ─────────────────────────────────────────────────────────
 NEWS_KEYWORDS = {
     "Adani Enterprises":"Adani","Adani Ports And Special Economic Zone":"Adani",
     "Adani Power":"Adani","Adani Green Energy":"Adani",
@@ -417,7 +389,6 @@ def get_news_keyword(company_name: str) -> str:
     return words[0] if words else company_name
 
 
-# ── Sentiment helpers ─────────────────────────────────────────────────────────
 vader = SentimentIntensityAnalyzer()
 
 def vader_score(text: str) -> float:
@@ -438,7 +409,6 @@ def badge_class(label):
     return {"Positive":"b-pos","Negative":"b-neg","Neutral":"b-neu"}.get(label,"")
 
 
-# ── Data fetchers ─────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_news(company_name: str) -> pd.DataFrame:
     keyword  = get_news_keyword(company_name)
@@ -523,7 +493,6 @@ def fetch_price(ticker: str, period: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-# ── Technical indicators ──────────────────────────────────────────────────────
 def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty or "Close" not in df.columns:
         return df
@@ -541,7 +510,6 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-# ── Chart builders ────────────────────────────────────────────────────────────
 def build_price_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
     df  = add_indicators(df)
     fig = make_subplots(
@@ -549,7 +517,6 @@ def build_price_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
         row_heights=[0.72, 0.28], vertical_spacing=0.06,
         subplot_titles=("", "MACD")
     )
-    # Candlesticks
     fig.add_trace(go.Candlestick(
         x=df["Date"], open=df["Open"], high=df["High"],
         low=df["Low"], close=df["Close"], name="Price",
@@ -557,14 +524,12 @@ def build_price_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
         increasing_fillcolor="#00d4aa", decreasing_fillcolor="#ff4b6e",
         line=dict(width=1), whiskerwidth=0.6,
     ), row=1, col=1)
-    # MAs
     fig.add_trace(go.Scatter(x=df["Date"], y=df["MA20"], name="MA20",
         line=dict(color="#5c7cfa", width=1.5, dash="dot"),
         hovertemplate="MA20: %{y:.2f}<extra></extra>"), row=1, col=1)
     fig.add_trace(go.Scatter(x=df["Date"], y=df["MA50"], name="MA50",
         line=dict(color="#ffd166", width=1.5, dash="dot"),
         hovertemplate="MA50: %{y:.2f}<extra></extra>"), row=1, col=1)
-    # Bollinger Bands — filled area, no separate legend entries for bands
     fig.add_trace(go.Scatter(x=df["Date"], y=df["BB_upper"], name="BB Bands",
         line=dict(color="rgba(150,120,255,0.35)", width=1),
         hovertemplate="BB Upper: %{y:.2f}<extra></extra>"), row=1, col=1)
@@ -573,7 +538,6 @@ def build_price_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
         fill="tonexty", fillcolor="rgba(150,120,255,0.06)",
         showlegend=False,
         hovertemplate="BB Lower: %{y:.2f}<extra></extra>"), row=1, col=1)
-    # MACD panel
     hist_colors = ["#00d4aa" if v >= 0 else "#ff4b6e" for v in df["MACD_hist"].fillna(0)]
     fig.add_trace(go.Bar(x=df["Date"], y=df["MACD_hist"], name="Histogram",
         marker_color=hist_colors, opacity=0.7), row=2, col=1)
@@ -608,7 +572,6 @@ def build_price_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
         yaxis2=dict(gridcolor="#1a2035", zeroline=True, zerolinecolor="#2a3560",
                     color="#4a5568", side="right"),
     )
-    # Style the MACD subplot title
     fig.layout.annotations[0].font.color = "#4a5568"
     fig.layout.annotations[0].font.size  = 11
     return fig
@@ -647,7 +610,6 @@ def build_comparison_chart(df1, df2, label1, label2) -> go.Figure:
 
 
 def build_sentiment_trend(df: pd.DataFrame) -> go.Figure:
-    # Group articles by date and compute average sentiment per day
     df = df.copy()
     df["date"] = df["published_dt"].dt.date
     daily = (
@@ -666,8 +628,6 @@ def build_sentiment_trend(df: pd.DataFrame) -> go.Figure:
     daily["rolling"] = daily["avg_score"].rolling(3, min_periods=1).mean()
 
     fig = go.Figure()
-
-    # Bars — one per day, coloured by sentiment
     fig.add_trace(go.Bar(
         x=daily["date"],
         y=daily["avg_score"],
@@ -682,8 +642,6 @@ def build_sentiment_trend(df: pd.DataFrame) -> go.Figure:
             "%{customdata[0]}<extra></extra>"
         ),
     ))
-
-    # Trend line
     fig.add_trace(go.Scatter(
         x=daily["date"],
         y=daily["rolling"],
@@ -692,7 +650,6 @@ def build_sentiment_trend(df: pd.DataFrame) -> go.Figure:
         line=dict(color="#5c7cfa", width=2.5, shape="spline", smoothing=0.7),
         hoverinfo="skip",
     ))
-
     fig.add_hline(y=0,     line_dash="dot", line_color="#333",                   line_width=1)
     fig.add_hline(y=0.07,  line_dash="dot", line_color="rgba(0,212,170,0.3)",    line_width=1)
     fig.add_hline(y=-0.07, line_dash="dot", line_color="rgba(255,75,110,0.3)",   line_width=1)
@@ -725,6 +682,81 @@ def build_sentiment_trend(df: pd.DataFrame) -> go.Figure:
         hovermode="x unified",
     )
     return fig
+
+
+# ── Helper: resolve any asset type to (display_name, yf_ticker) ──────────────
+def resolve_asset(asset_type: str, session_key: str, df_companies: pd.DataFrame):
+    """
+    Returns (name, ticker) or (None, None) if not yet selected.
+    asset_type: one of "📈 Index", "🏅 Commodity", "₿ Crypto", "💱 Forex", "🇮🇳 Stock"
+    session_key: unique prefix to avoid key collisions between Asset A and Asset B
+    """
+    name_key   = f"{session_key}_name"
+    ticker_key = f"{session_key}_ticker"
+
+    CA_ASSETS_INDEX = {
+        "Nifty 50":    "^NSEI",
+        "Sensex":      "^BSESN",
+        "Nifty Bank":  "^NSEBANK",
+        "Nifty Midcap 50": "^NSEMDCP50",
+    }
+
+    POPULAR_FOREX_SHORT = {
+        "USD/INR":  "INR=X",  "EUR/USD": "EURUSD=X", "GBP/USD": "GBPUSD=X",
+        "USD/JPY":  "JPY=X",  "EUR/INR": "EURINR=X", "GBP/INR": "GBPINR=X",
+        "USD/AED":  "AED=X",  "USD/CNY": "CNY=X",    "AUD/USD": "AUDUSD=X",
+        "USD/SGD":  "SGD=X",  "USD/CHF": "CHF=X",    "USD/CAD": "CAD=X",
+        "USD/KRW":  "KRW=X",  "USD/MYR": "MYR=X",    "USD/TRY": "TRY=X",
+        "USD/ZAR":  "ZAR=X",  "USD/BRL": "BRL=X",    "USD/MXN": "MXN=X",
+        "USD/SAR":  "SAR=X",  "USD/HKD": "HKD=X",
+    }
+
+    if asset_type == "📈 Index":
+        pick = st.selectbox("Select Index", list(CA_ASSETS_INDEX.keys()),
+                            key=f"{session_key}_idx_pick", label_visibility="collapsed")
+        st.session_state[name_key]   = pick
+        st.session_state[ticker_key] = CA_ASSETS_INDEX[pick]
+
+    elif asset_type == "🏅 Commodity":
+        pick = st.selectbox("Select Commodity", list(MCX.keys()),
+                            key=f"{session_key}_com_pick", label_visibility="collapsed")
+        st.session_state[name_key]   = pick
+        st.session_state[ticker_key] = MCX[pick]
+
+    elif asset_type == "₿ Crypto":
+        pick = st.selectbox("Select Crypto", list(CRYPTO.keys()),
+                            key=f"{session_key}_cry_pick", label_visibility="collapsed")
+        st.session_state[name_key]   = pick
+        st.session_state[ticker_key] = CRYPTO[pick]
+
+    elif asset_type == "💱 Forex":
+        pick = st.selectbox("Select Forex Pair", list(POPULAR_FOREX_SHORT.keys()),
+                            key=f"{session_key}_fx_pick", label_visibility="collapsed")
+        st.session_state[name_key]   = pick
+        st.session_state[ticker_key] = POPULAR_FOREX_SHORT[pick]
+
+    elif asset_type == "🇮🇳 Stock":
+        q = st.text_input("Search company / symbol",
+                          placeholder="e.g. Reliance, TCS, HDFC…",
+                          key=f"{session_key}_q", label_visibility="collapsed")
+        if q:
+            results = search_companies(q, df_companies)
+            if results.empty:
+                st.caption("No results found.")
+            else:
+                for _, row in results.iterrows():
+                    btn_key = f"{session_key}_btn_{row['symbol']}"
+                    if st.button(f"{row['name']}  [{row['symbol']}]",
+                                 key=btn_key, use_container_width=True):
+                        st.session_state[name_key]   = row["name"]
+                        st.session_state[ticker_key] = row["yf_ns"]
+        if name_key in st.session_state:
+            st.caption(f"✅ **{st.session_state[name_key]}** (`{st.session_state[ticker_key]}`)")
+
+    return (
+        st.session_state.get(name_key),
+        st.session_state.get(ticker_key),
+    )
 
 
 # ── Load company list ─────────────────────────────────────────────────────────
@@ -767,7 +799,6 @@ with st.sidebar:
                         st.session_state.primary_ticker = row["yf_ns"]
                         st.session_state.primary_symbol = row["symbol"]
 
-        # Index tickers use ^ prefix and don't take .NS/.BO suffix
         INDEX_TICKERS = {
             "NIFTY50":  {"NSE (.NS)": "^NSEI",  "BSE (.BO)": "^BSESN"},
             "SENSEX":   {"NSE (.NS)": "^BSESN",  "BSE (.BO)": "^BSESN"},
@@ -796,7 +827,6 @@ with st.sidebar:
         primary_ticker = CRYPTO[primary_name]
 
     else:  # 💱 Forex
-        # ── Popular pairs quick-pick ──────────────────────────────────────
         POPULAR_PAIRS = {
             "USD/INR  · US Dollar → Indian Rupee":       "INR=X",
             "EUR/USD  · Euro → US Dollar":               "EURUSD=X",
@@ -815,7 +845,6 @@ with st.sidebar:
                                      key="fx_popular", label_visibility="collapsed")
 
         st.markdown("**🔀 Or Build Your Own Pair**")
-        # All unique currencies extracted from FOREX keys
         BASE_CURRENCIES = [
             "USD","EUR","GBP","JPY","AUD","NZD","CAD","CHF",
             "INR","CNY","HKD","SGD","KRW","TWD","MYR","THB",
@@ -852,79 +881,28 @@ with st.sidebar:
 
     # ── Cross Asset Comparison ────────────────────────────────────────────────
     st.markdown("---")
-    st.markdown("**🔀 Asset vs Currency**")
-    st.caption("Compare any asset against a currency pair.")
+    st.markdown("**🔀 Cross Asset Comparison**")
+    st.caption("Compare any two assets — stocks, crypto, commodities, forex, indices.")
     compare_on = st.toggle("Enable Comparison", value=False, key="ca_toggle")
-    compare_name = compare_ticker = None
 
-    # Flat lookup for the ASSET side (stocks, commodities, crypto, indices)
-    CA_ASSETS = {
-        "📈 Nifty 50":   "^NSEI",
-        "📈 Sensex":     "^BSESN",
-        "📈 Nifty Bank": "^NSEBANK",
-    }
-    for k, v in MCX.items():
-        CA_ASSETS[f"🏅 {k}"] = v
-    for k, v in CRYPTO.items():
-        CA_ASSETS[f"₿ {k}"] = v
-
-    # Short labels for forex dropdown in cross-asset
-    CA_FOREX = {
-        "USD/INR":  "INR=X",
-        "EUR/USD":  "EURUSD=X",
-        "GBP/USD":  "GBPUSD=X",
-        "USD/JPY":  "JPY=X",
-        "EUR/INR":  "EURINR=X",
-        "GBP/INR":  "GBPINR=X",
-        "USD/AED":  "AED=X",
-        "USD/CNY":  "CNY=X",
-        "AUD/USD":  "AUDUSD=X",
-        "USD/SGD":  "SGD=X",
-        "USD/CHF":  "CHF=X",
-        "USD/CAD":  "CAD=X",
-        "USD/KRW":  "KRW=X",
-        "USD/MYR":  "MYR=X",
-        "USD/TRY":  "TRY=X",
-        "USD/ZAR":  "ZAR=X",
-        "USD/BRL":  "BRL=X",
-        "USD/MXN":  "MXN=X",
-        "USD/SAR":  "SAR=X",
-        "USD/HKD":  "HKD=X",
-    }
+    ca_name_a = ca_ticker_a = ca_name_b = ca_ticker_b = None
 
     if compare_on:
-        st.markdown("**Asset**")
-        ca_type = st.radio("Asset type", ["📈 Index","🏅 Commodity","₿ Crypto","🇮🇳 Stock"],
-                            key="ca_type", horizontal=True, label_visibility="collapsed")
+        ASSET_TYPES = ["📈 Index", "🏅 Commodity", "₿ Crypto", "💱 Forex", "🇮🇳 Stock"]
 
-        if ca_type == "🇮🇳 Stock":
-            ca_q1 = st.text_input("Search stock", placeholder="e.g. Reliance, TCS…",
-                                   key="ca_q1", label_visibility="collapsed")
-            if ca_q1:
-                ca_r1 = search_companies(ca_q1, all_companies)
-                for _, row in ca_r1.iterrows():
-                    if st.button(f"{row['name']} [{row['symbol']}]",
-                                 key=f"ca1_{row['symbol']}", use_container_width=True):
-                        st.session_state.ca_name1   = row["name"]
-                        st.session_state.ca_ticker1 = row["yf_ns"]
-            if "ca_name1" in st.session_state:
-                st.caption(f"✅ {st.session_state.ca_name1}")
-        else:
-            prefix = {"📈 Index":"📈","🏅 Commodity":"🏅","₿ Crypto":"₿"}[ca_type]
-            opts1  = {k: v for k, v in CA_ASSETS.items() if k.startswith(prefix)}
-            pick1  = st.selectbox("Pick asset", list(opts1.keys()),
-                                   key="ca_pick1", label_visibility="collapsed")
-            st.session_state.ca_name1   = pick1
-            st.session_state.ca_ticker1 = opts1[pick1]
+        # ── Asset A ──────────────────────────────────────────────────────────
+        st.markdown("**Asset A**")
+        type_a = st.radio("Type A", ASSET_TYPES, key="ca_type_a",
+                          horizontal=False, label_visibility="collapsed")
+        ca_name_a, ca_ticker_a = resolve_asset(type_a, "ca_a", all_companies)
 
-        st.markdown("**Currency**")
-        pick_fx = st.selectbox("Pick currency pair", list(CA_FOREX.keys()),
-                                key="ca_fx_pick", label_visibility="collapsed")
-        st.session_state.ca_name2   = pick_fx
-        st.session_state.ca_ticker2 = CA_FOREX[pick_fx]
+        st.markdown("---")
 
-        compare_name   = st.session_state.get("ca_name1", "₿ Bitcoin")
-        compare_ticker = st.session_state.get("ca_ticker1", "BTC-USD")
+        # ── Asset B ──────────────────────────────────────────────────────────
+        st.markdown("**Asset B**")
+        type_b = st.radio("Type B", ASSET_TYPES, key="ca_type_b",
+                          horizontal=False, label_visibility="collapsed")
+        ca_name_b, ca_ticker_b = resolve_asset(type_b, "ca_b", all_companies)
 
     st.markdown("---")
     total = len(all_companies)
@@ -944,9 +922,8 @@ st.markdown("---")
 
 # ── Fetch data ────────────────────────────────────────────────────────────────
 with st.spinner(f"Loading {primary_name}…"):
-    price_df   = fetch_price(primary_ticker, period)
-    news_df    = fetch_news(primary_name)
-    compare_df = fetch_price(compare_ticker, period) if (compare_on and compare_ticker) else pd.DataFrame()
+    price_df = fetch_price(primary_ticker, period)
+    news_df  = fetch_news(primary_name)
 
 # ── KPI Row ───────────────────────────────────────────────────────────────────
 c1, c2, c3, c4, c5 = st.columns(5)
@@ -961,7 +938,6 @@ avg_sent = news_df["compound"].mean() if not news_df.empty else 0
 overall  = label_from_score(avg_sent)
 sent_col = {"Positive":"positive","Negative":"negative","Neutral":"neutral"}[overall]
 pct_col  = "positive" if pct >= 0 else "negative"
-is_forex = asset_class == "💱 Forex" if "asset_class" in dir() else "=X" in primary_ticker
 currency = "₹" if ".NS" in primary_ticker or ".BO" in primary_ticker else ""
 
 with c1:
@@ -984,23 +960,19 @@ if not price_df.empty:
 else:
     st.warning("Price data unavailable. Check the ticker or try BSE (.BO) instead of NSE (.NS).")
 
-# ── Asset vs Currency Comparison ──────────────────────────────────────────────
-if compare_on and "ca_name1" in st.session_state and "ca_name2" in st.session_state:
-    ca_name1   = st.session_state.ca_name1    # asset
-    ca_ticker1 = st.session_state.ca_ticker1
-    ca_name2   = st.session_state.ca_name2    # currency pair
-    ca_ticker2 = st.session_state.ca_ticker2
+# ── Cross Asset Comparison Chart ──────────────────────────────────────────────
+if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
+    with st.spinner(f"Loading {ca_name_a} vs {ca_name_b}…"):
+        ca_df_a = fetch_price(ca_ticker_a, period)
+        ca_df_b = fetch_price(ca_ticker_b, period)
 
-    with st.spinner(f"Loading {ca_name1} vs {ca_name2}…"):
-        ca_df1 = fetch_price(ca_ticker1, period)
-        ca_df2 = fetch_price(ca_ticker2, period)
+    if not ca_df_a.empty and not ca_df_b.empty:
+        st.markdown(f"### 🔀 {ca_name_a} vs {ca_name_b}")
 
-    if not ca_df1.empty and not ca_df2.empty:
-        st.markdown(f"### 🔀 {ca_name1} vs {ca_name2}")
         fig_ca = go.Figure()
         for df, label, color in [
-            (ca_df1, ca_name1, "#5c7cfa"),
-            (ca_df2, ca_name2, "#00d4aa"),
+            (ca_df_a, ca_name_a, "#5c7cfa"),
+            (ca_df_b, ca_name_b, "#00d4aa"),
         ]:
             norm = df["Close"].astype(float) / df["Close"].astype(float).iloc[0] * 100
             fig_ca.add_trace(go.Scatter(
@@ -1008,17 +980,17 @@ if compare_on and "ca_name1" in st.session_state and "ca_name2" in st.session_st
                 line=dict(color=color, width=2.5, shape="spline", smoothing=0.6),
                 hovertemplate="%{y:.1f}<extra>" + label + "</extra>"
             ))
+
         fig_ca.update_layout(
             template="plotly_dark",
             paper_bgcolor="#0e1320", plot_bgcolor="#0e1320",
-            margin=dict(l=10, r=10, t=55, b=10), height=370,
+            margin=dict(l=10, r=10, t=55, b=10), height=400,
             title=dict(
-                text=f"<b>{ca_name1}  vs  {ca_name2}</b> — Normalised to 100",
+                text=f"<b>{ca_name_a}  vs  {ca_name_b}</b> — Normalised to 100",
                 font=dict(size=14, color="#c0cce0"),
                 x=0.01, xanchor="left", y=0.97
             ),
-            yaxis=dict(gridcolor="#1a2035", zeroline=False,
-                       color="#4a5568", side="right"),
+            yaxis=dict(gridcolor="#1a2035", zeroline=False, color="#4a5568", side="right"),
             xaxis=dict(showgrid=False, color="#4a5568"),
             legend=dict(
                 orientation="h", y=1.06, x=0.5, xanchor="center",
@@ -1029,19 +1001,21 @@ if compare_on and "ca_name1" in st.session_state and "ca_name2" in st.session_st
         )
         st.plotly_chart(fig_ca, use_container_width=True)
 
-        # Correlation badge
+        # ── Correlation badge ─────────────────────────────────────────────
         try:
             merged = pd.merge(
-                ca_df1[["Date","Close"]].rename(columns={"Close":"A"}),
-                ca_df2[["Date","Close"]].rename(columns={"Close":"B"}),
+                ca_df_a[["Date","Close"]].rename(columns={"Close":"A"}),
+                ca_df_b[["Date","Close"]].rename(columns={"Close":"B"}),
                 on="Date", how="inner"
             )
             if len(merged) > 5:
                 corr = merged["A"].corr(merged["B"])
-                corr_label = ("Strong positive" if corr > 0.7 else
-                              "Moderate positive" if corr > 0.3 else
-                              "Weak / no" if corr > -0.3 else
-                              "Moderate negative" if corr > -0.7 else "Strong negative")
+                corr_label = (
+                    "Strong positive" if corr > 0.7 else
+                    "Moderate positive" if corr > 0.3 else
+                    "Weak / no" if corr > -0.3 else
+                    "Moderate negative" if corr > -0.7 else "Strong negative"
+                )
                 corr_color = "#00d4aa" if corr > 0.3 else "#ff4b6e" if corr < -0.3 else "#ffd166"
                 st.markdown(
                     f"<div style='text-align:center;padding:10px;background:#131929;"
@@ -1053,8 +1027,29 @@ if compare_on and "ca_name1" in st.session_state and "ca_name2" in st.session_st
                 )
         except Exception:
             pass
-    else:
-        st.warning("Could not load data for one or both assets. Try a different period or asset.")
+
+        # ── Side-by-side KPI mini cards ───────────────────────────────────
+        kpi_cols = st.columns(2)
+        for col, df, label, color in [
+            (kpi_cols[0], ca_df_a, ca_name_a, "#5c7cfa"),
+            (kpi_cols[1], ca_df_b, ca_name_b, "#00d4aa"),
+        ]:
+            if not df.empty:
+                first_p = float(df["Close"].iloc[0])
+                last_p  = float(df["Close"].iloc[-1])
+                ret_pct = (last_p - first_p) / first_p * 100
+                ret_col = "#00d4aa" if ret_pct >= 0 else "#ff4b6e"
+                with col:
+                    st.markdown(
+                        f"<div class='kpi-card' style='border-color:{color}33'>"
+                        f"<div class='kpi-value' style='color:{color}'>{label}</div>"
+                        f"<div class='kpi-value' style='color:{ret_col};font-size:1.4rem'>{ret_pct:+.2f}%</div>"
+                        f"<div class='kpi-label'>Return over period</div>"
+                        f"</div>",
+                        unsafe_allow_html=True
+                    )
+    elif compare_on and (ca_name_a or ca_name_b):
+        st.info("⬅️ Select both Asset A and Asset B in the sidebar to display the comparison.")
 
 # ── Sentiment Analysis ────────────────────────────────────────────────────────
 st.markdown("### 🧠 Sentiment Analysis")
