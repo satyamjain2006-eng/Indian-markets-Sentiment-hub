@@ -67,6 +67,14 @@ CRYPTO = {
     "Dogecoin":"DOGE-USD","Avalanche":"AVAX-USD","Polkadot":"DOT-USD","Chainlink":"LINK-USD"
 }
 
+# ── Indices (always available, not in NSE CSV) ───────────────────────────────
+INDICES = [
+    ("NIFTY50",  "Nifty 50",         "^NSEI",   "^NSEI"),
+    ("SENSEX",   "Sensex",           "^BSESN",  "^BSESN"),
+    ("NIFTYBANK","Nifty Bank",       "^NSEBANK", "^NSEBANK"),
+    ("NIFTYMID50","Nifty Midcap 50", "^NSEMDCP50","^NSEMDCP50"),
+]
+
 # ── Fallback embedded list (~400 companies) ───────────────────────────────────
 # Used when GitHub CSV is unavailable. Covers all major NSE/BSE companies.
 COMPANY_LIST = [
@@ -225,8 +233,11 @@ def load_indian_companies() -> pd.DataFrame:
                 live_df["yf_ns"]    = live_df["symbol"] + ".NS"
                 live_df["yf_bo"]    = live_df["symbol"] + ".BO"
                 live_df["exchange"] = "NSE/BSE"
-                df = live_df.dropna().reset_index(drop=True)
-                return df
+                # Prepend indices so they always appear at top of search
+                idx_df = pd.DataFrame(INDICES, columns=["symbol","name","yf_ns","yf_bo"])
+                idx_df["exchange"] = "Index"
+                df = pd.concat([idx_df, live_df], ignore_index=True)
+                return df.dropna().reset_index(drop=True)
         except Exception:
             pass    # silently fall through to embedded list
 
@@ -237,6 +248,11 @@ def load_indian_companies() -> pd.DataFrame:
     df["yf_ns"]    = df["symbol"] + ".NS"
     df["yf_bo"]    = df["symbol"] + ".BO"
     df["exchange"] = "NSE/BSE"
+
+    # Prepend indices so they always appear at top of search
+    idx_df = pd.DataFrame(INDICES, columns=["symbol","name","yf_ns","yf_bo"])
+    idx_df["exchange"] = "Index"
+    df = pd.concat([idx_df, df], ignore_index=True)
     return df.dropna().reset_index(drop=True)
 
 
@@ -570,9 +586,9 @@ with st.sidebar:
         )
 
         if "primary_name" not in st.session_state:
-            st.session_state.primary_name   = "Reliance Industries"
-            st.session_state.primary_ticker = "RELIANCE.NS"
-            st.session_state.primary_symbol = "RELIANCE"
+            st.session_state.primary_name   = "Nifty 50"
+            st.session_state.primary_ticker = "^NSEI"
+            st.session_state.primary_symbol = "NIFTY50"
 
         if query:
             results = search_companies(query, all_companies)
@@ -586,11 +602,19 @@ with st.sidebar:
                         st.session_state.primary_ticker = row["yf_ns"]
                         st.session_state.primary_symbol = row["symbol"]
 
+        # Index tickers use ^ prefix and don't take .NS/.BO suffix
+        INDEX_TICKERS = {
+            "NIFTY50":  {"NSE (.NS)": "^NSEI",  "BSE (.BO)": "^BSESN"},
+            "SENSEX":   {"NSE (.NS)": "^BSESN",  "BSE (.BO)": "^BSESN"},
+        }
         exchange = st.radio("Exchange", ["NSE (.NS)", "BSE (.BO)"], horizontal=True)
-        if exchange == "BSE (.BO)":
-            st.session_state.primary_ticker = st.session_state.primary_symbol + ".BO"
+        sym = st.session_state.primary_symbol
+        if sym in INDEX_TICKERS:
+            st.session_state.primary_ticker = INDEX_TICKERS[sym][exchange]
+        elif exchange == "BSE (.BO)":
+            st.session_state.primary_ticker = sym + ".BO"
         else:
-            st.session_state.primary_ticker = st.session_state.primary_symbol + ".NS"
+            st.session_state.primary_ticker = sym + ".NS"
 
         st.markdown(f"**Selected:** `{st.session_state.primary_name}`")
         st.markdown(f"**Ticker:** `{st.session_state.primary_ticker}`")
