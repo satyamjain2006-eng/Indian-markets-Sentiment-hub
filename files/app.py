@@ -897,7 +897,11 @@ def fetch_price(ticker: str, period: str) -> pd.DataFrame:
         if isinstance(data.columns, pd.MultiIndex):
             data.columns = data.columns.get_level_values(0)
 
-        return data.reset_index()
+        data = data.reset_index()
+        if "Datetime" in data.columns:
+            data = data.rename(columns={"Datetime": "Date"})
+        return data
+        
 
     except Exception:
         return pd.DataFrame()
