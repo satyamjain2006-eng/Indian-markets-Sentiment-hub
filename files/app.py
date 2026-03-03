@@ -1184,8 +1184,7 @@ if not news_df.empty:
                 </a>
                 <span class='badge {bc}'>{row['label']} {row['compound']:+.3f}</span>
             </div>
-            <div class='news-meta'>📡 {row['source']} &nbsp;|&nbsp; {fb}VADER: {row['vader']:+.2f} &nbsp;|&nbsp; {row['published']}</div>
-        </div>
+            <div class='news-meta'>📡 {row['source']} &nbsp;|&nbsp; Sentiment: {row['compound']:+.2f} &nbsp;|&nbsp; {row['published']}</div>
         """, unsafe_allow_html=True)
 else:
     st.info("No news found. Try a different asset or check your connection.")
@@ -1193,7 +1192,7 @@ else:
 # ── Raw data ──────────────────────────────────────────────────────────────────
 if not news_df.empty:
     with st.expander("🔍 Raw sentiment data"):
-        cols = ["source","title","label","compound","vader"]
+        cols = ["source","title","label","compound"]
         st.dataframe(
             news_df[cols],
             use_container_width=True
