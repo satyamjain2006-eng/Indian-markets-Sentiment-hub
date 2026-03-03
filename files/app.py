@@ -15,8 +15,9 @@ import warnings
 warnings.filterwarnings("ignore")
 
 try:
-    _icon = Image.open("icon.png")
-except FileNotFoundError:
+    import os
+    _icon = Image.open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.png"))
+except Exception:
     _icon = "📊"  # fallback if icon.png is missing
 
 st.set_page_config(
