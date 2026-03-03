@@ -860,6 +860,8 @@ def fetch_news(company_name: str) -> pd.DataFrame:
     relevant = df[df["relevant"] == True]
     df = relevant if len(relevant) >= 5 else df
     df = df.drop(columns=["relevant"], errors="ignore").reset_index(drop=True)
+    df["published_dt"] = pd.to_datetime(df["published"], errors="coerce")
+    df = df.sort_values("published_dt", ascending=False).reset_index(drop=True)
 
     df["compound"] = df["title"].apply(vader_score)
     df["label"]    = df["compound"].apply(label_from_score)
@@ -1139,7 +1141,7 @@ if not news_df.empty:
 
     with col_right:
         st.markdown("#### 📈 Sentiment Trend (Latest Articles)")
-        trend_df = news_df.copy().reset_index(drop=True)
+        trend_df = news_df.sort_values("published_dt").reset_index(drop=True)
         trend_df["article_index"] = range(1, len(trend_df)+1)
                            
 
