@@ -6,6 +6,7 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from PIL import Image
 import requests
 import io
 from datetime import datetime
@@ -13,9 +14,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import warnings
 warnings.filterwarnings("ignore")
 
+try:
+    _icon = Image.open("icon.png")
+except FileNotFoundError:
+    _icon = "📊"  # fallback if icon.png is missing
+
 st.set_page_config(
     page_title="Indian Market Sentiment Hub",
-    page_icon="📊",
+    page_icon=_icon,
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -845,24 +851,121 @@ with st.sidebar:
         primary_ticker = CRYPTO[primary_name]
 
     else:  # 💱 Forex
-        POPULAR_PAIRS = {
-            "USD/INR  · US Dollar → Indian Rupee":       "INR=X",
-            "EUR/USD  · Euro → US Dollar":               "EURUSD=X",
-            "GBP/USD  · British Pound → US Dollar":      "GBPUSD=X",
-            "USD/JPY  · US Dollar → Japanese Yen":       "JPY=X",
-            "EUR/INR  · Euro → Indian Rupee":            "EURINR=X",
-            "GBP/INR  · British Pound → Indian Rupee":   "GBPINR=X",
-            "USD/AED  · US Dollar → UAE Dirham":         "AED=X",
-            "USD/CNY  · US Dollar → Chinese Yuan":       "CNY=X",
-            "AUD/USD  · Australian Dollar → US Dollar":  "AUDUSD=X",
-            "USD/SGD  · US Dollar → Singapore Dollar":   "SGD=X",
+        # ── Grouped regional forex pairs ──────────────────────────────────
+        FOREX_GROUPS = {
+            "⭐ Majors": {
+                "USD/INR":  "INR=X",
+                "EUR/USD":  "EURUSD=X",
+                "GBP/USD":  "GBPUSD=X",
+                "USD/JPY":  "JPY=X",
+                "USD/CHF":  "CHF=X",
+                "AUD/USD":  "AUDUSD=X",
+                "NZD/USD":  "NZDUSD=X",
+                "USD/CAD":  "CAD=X",
+            },
+            "🌏 Asian": {
+                "USD/CNY":  "CNY=X",
+                "USD/HKD":  "HKD=X",
+                "USD/SGD":  "SGD=X",
+                "USD/KRW":  "KRW=X",
+                "USD/TWD":  "TWD=X",
+                "USD/MYR":  "MYR=X",
+                "USD/THB":  "THB=X",
+                "USD/PHP":  "PHP=X",
+                "USD/IDR":  "IDR=X",
+                "USD/BDT":  "BDT=X",
+                "USD/PKR":  "PKR=X",
+                "USD/LKR":  "LKR=X",
+                "USD/NPR":  "NPR=X",
+                "USD/VND":  "VND=X",
+            },
+            "🌍 Middle East & Africa": {
+                "USD/AED":  "AED=X",
+                "USD/SAR":  "SAR=X",
+                "USD/QAR":  "QAR=X",
+                "USD/KWD":  "KWD=X",
+                "USD/BHD":  "BHD=X",
+                "USD/OMR":  "OMR=X",
+                "USD/ILS":  "ILS=X",
+                "USD/TRY":  "TRY=X",
+                "USD/EGP":  "EGP=X",
+                "USD/ZAR":  "ZAR=X",
+                "USD/NGN":  "NGN=X",
+                "USD/KES":  "KES=X",
+            },
+            "🌍 European": {
+                "USD/SEK":  "SEK=X",
+                "USD/NOK":  "NOK=X",
+                "USD/DKK":  "DKK=X",
+                "USD/PLN":  "PLN=X",
+                "USD/CZK":  "CZK=X",
+                "USD/HUF":  "HUF=X",
+                "USD/RON":  "RON=X",
+                "USD/RUB":  "RUB=X",
+                "USD/UAH":  "UAH=X",
+            },
+            "🌎 Americas": {
+                "USD/BRL":  "BRL=X",
+                "USD/MXN":  "MXN=X",
+                "USD/ARS":  "ARS=X",
+                "USD/CLP":  "CLP=X",
+                "USD/COP":  "COP=X",
+                "USD/PEN":  "PEN=X",
+            },
+            "🔀 Cross Pairs": {
+                "EUR/INR":  "EURINR=X",
+                "GBP/INR":  "GBPINR=X",
+                "JPY/INR":  "JPYINR=X",
+                "EUR/GBP":  "EURGBP=X",
+                "EUR/JPY":  "EURJPY=X",
+                "GBP/JPY":  "GBPJPY=X",
+                "AUD/JPY":  "AUDJPY=X",
+                "EUR/CHF":  "EURCHF=X",
+            },
         }
 
-        st.markdown("**⚡ Popular Pairs**")
-        popular_pick = st.selectbox("Popular", list(POPULAR_PAIRS.keys()),
-                                     key="fx_popular", label_visibility="collapsed")
+        # ── Step 1: pick region ───────────────────────────────────────────
+        st.markdown("**1. Select Region**")
+        fx_region = st.selectbox("Region", list(FOREX_GROUPS.keys()),
+                                  key="fx_region", label_visibility="collapsed")
 
-        st.markdown("**🔀 Or Build Your Own Pair**")
+        # ── Step 2: pick pair within region ──────────────────────────────
+        st.markdown("**2. Select Pair**")
+        region_pairs = FOREX_GROUPS[fx_region]
+        fx_pair = st.selectbox("Pair", list(region_pairs.keys()),
+                                key="fx_pair", label_visibility="collapsed")
+
+        # ── Show full currency name as caption ────────────────────────────
+        CURRENCY_NAMES = {
+            "USD":"US Dollar","EUR":"Euro","GBP":"British Pound","JPY":"Japanese Yen",
+            "AUD":"Australian Dollar","NZD":"New Zealand Dollar","CAD":"Canadian Dollar",
+            "CHF":"Swiss Franc","INR":"Indian Rupee","CNY":"Chinese Yuan",
+            "HKD":"Hong Kong Dollar","SGD":"Singapore Dollar","KRW":"South Korean Won",
+            "TWD":"Taiwan Dollar","MYR":"Malaysian Ringgit","THB":"Thai Baht",
+            "PHP":"Philippine Peso","IDR":"Indonesian Rupiah","BDT":"Bangladeshi Taka",
+            "PKR":"Pakistani Rupee","LKR":"Sri Lankan Rupee","NPR":"Nepalese Rupee",
+            "VND":"Vietnamese Dong","AED":"UAE Dirham","SAR":"Saudi Riyal",
+            "QAR":"Qatari Riyal","KWD":"Kuwaiti Dinar","BHD":"Bahraini Dinar",
+            "OMR":"Omani Rial","ILS":"Israeli Shekel","TRY":"Turkish Lira",
+            "EGP":"Egyptian Pound","ZAR":"South African Rand","NGN":"Nigerian Naira",
+            "KES":"Kenyan Shilling","SEK":"Swedish Krona","NOK":"Norwegian Krone",
+            "DKK":"Danish Krone","PLN":"Polish Zloty","CZK":"Czech Koruna",
+            "HUF":"Hungarian Forint","RON":"Romanian Leu","RUB":"Russian Ruble",
+            "UAH":"Ukrainian Hryvnia","BRL":"Brazilian Real","MXN":"Mexican Peso",
+            "ARS":"Argentine Peso","CLP":"Chilean Peso","COP":"Colombian Peso",
+            "PEN":"Peruvian Sol",
+        }
+        parts = fx_pair.split("/")
+        if len(parts) == 2:
+            base_name  = CURRENCY_NAMES.get(parts[0], parts[0])
+            quote_name = CURRENCY_NAMES.get(parts[1], parts[1])
+            st.caption(f"📌 {base_name} → {quote_name}")
+
+        primary_name   = fx_pair
+        primary_ticker = region_pairs[fx_pair]
+
+        # ── Custom pair builder — wrapped in a form ───────────────────────
+        st.markdown("**🔧 Or Build a Custom Pair**")
         BASE_CURRENCIES = [
             "USD","EUR","GBP","JPY","AUD","NZD","CAD","CHF",
             "INR","CNY","HKD","SGD","KRW","TWD","MYR","THB",
@@ -872,27 +975,31 @@ with st.sidebar:
             "HUF","RON","RUB","UAH","BRL","MXN","ARS","CLP",
             "COP","PEN",
         ]
-        col_a, col_b = st.columns(2)
-        with col_a:
-            st.caption("Base")
-            fx_base  = st.selectbox("Base currency", BASE_CURRENCIES,
-                                     key="fx_base", label_visibility="collapsed")
-        with col_b:
-            st.caption("Quote")
-            fx_quote = st.selectbox("Quote currency",
-                                     [c for c in BASE_CURRENCIES if c != fx_base],
-                                     key="fx_quote", label_visibility="collapsed",
-                                     index=BASE_CURRENCIES.index("INR") - 1)
+        with st.form("fx_custom_form", border=False):
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.caption("Base")
+                fx_base = st.selectbox("Base", BASE_CURRENCIES,
+                                        key="fx_base", label_visibility="collapsed")
+            with col_b:
+                st.caption("Quote")
+                default_quote_idx = BASE_CURRENCIES.index("INR") if "INR" in BASE_CURRENCIES else 8
+                fx_quote = st.selectbox("Quote", BASE_CURRENCIES,
+                                         key="fx_quote", label_visibility="collapsed",
+                                         index=default_quote_idx)
+            submitted = st.form_submit_button("Apply Custom Pair", use_container_width=True)
+            if submitted and fx_base != fx_quote:
+                custom_ticker = f"{fx_quote}=X" if fx_base == "USD" else f"{fx_base}{fx_quote}=X"
+                st.session_state["fx_custom_name"]   = f"{fx_base}/{fx_quote}"
+                st.session_state["fx_custom_ticker"] = custom_ticker
 
-        use_custom = st.toggle("Use custom pair", value=False, key="fx_custom_toggle")
-
-        if use_custom:
-            custom_ticker = f"{fx_quote}=X" if fx_base == "USD" else f"{fx_base}{fx_quote}=X"
-            primary_name   = f"{fx_base}/{fx_quote}"
-            primary_ticker = custom_ticker
-        else:
-            primary_name   = popular_pick
-            primary_ticker = POPULAR_PAIRS[popular_pick]
+        # Apply custom pair if one has been submitted
+        if "fx_custom_name" in st.session_state:
+            use_custom = st.toggle("Use custom pair", value=False, key="fx_custom_toggle")
+            if use_custom:
+                primary_name   = st.session_state["fx_custom_name"]
+                primary_ticker = st.session_state["fx_custom_ticker"]
+                st.caption(f"✅ Custom: **{primary_name}** (`{primary_ticker}`)")
 
     st.markdown("---")
     period = st.select_slider("Period", options=["1d","5d","1mo","3mo","6mo","1y","2y"], value="1mo")
