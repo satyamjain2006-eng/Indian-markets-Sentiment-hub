@@ -758,46 +758,135 @@ with st.sidebar:
         primary_ticker = CRYPTO[primary_name]
 
     else:  # 💱 Forex
-        # Group by region for easier browsing
-        st.markdown("**🔍 Search Currency Pair**")
-        fx_query = st.text_input("Type currency or country",
-            placeholder="e.g. INR, Euro, JPY, Dollar…",
-            key="fx_search", label_visibility="collapsed")
+        # ── Popular pairs quick-pick ──────────────────────────────────────
+        POPULAR_PAIRS = {
+            "USD/INR  · US Dollar → Indian Rupee":       "INR=X",
+            "EUR/USD  · Euro → US Dollar":               "EURUSD=X",
+            "GBP/USD  · British Pound → US Dollar":      "GBPUSD=X",
+            "USD/JPY  · US Dollar → Japanese Yen":       "JPY=X",
+            "EUR/INR  · Euro → Indian Rupee":            "EURINR=X",
+            "GBP/INR  · British Pound → Indian Rupee":   "GBPINR=X",
+            "USD/AED  · US Dollar → UAE Dirham":         "AED=X",
+            "USD/CNY  · US Dollar → Chinese Yuan":       "CNY=X",
+            "AUD/USD  · Australian Dollar → US Dollar":  "AUDUSD=X",
+            "USD/SGD  · US Dollar → Singapore Dollar":   "SGD=X",
+        }
 
-        if fx_query:
-            q = fx_query.strip().lower()
-            fx_matches = {k: v for k, v in FOREX.items()
-                         if q in k.lower()}
-            if fx_matches:
-                primary_name   = st.selectbox("Results", list(fx_matches.keys()),
-                                               label_visibility="collapsed")
-                primary_ticker = fx_matches[primary_name]
-            else:
-                st.caption("No matching pairs found.")
-                primary_name   = "USD/INR  · US Dollar → Indian Rupee"
-                primary_ticker = "INR=X"
+        st.markdown("**⚡ Popular Pairs**")
+        popular_pick = st.selectbox("Popular", list(POPULAR_PAIRS.keys()),
+                                     key="fx_popular", label_visibility="collapsed")
+
+        st.markdown("**🔀 Or Build Your Own Pair**")
+        # All unique currencies extracted from FOREX keys
+        BASE_CURRENCIES = [
+            "USD","EUR","GBP","JPY","AUD","NZD","CAD","CHF",
+            "INR","CNY","HKD","SGD","KRW","TWD","MYR","THB",
+            "PHP","IDR","BDT","PKR","LKR","NPR","VND","AED",
+            "SAR","QAR","KWD","BHD","OMR","ILS","TRY","EGP",
+            "ZAR","NGN","KES","SEK","NOK","DKK","PLN","CZK",
+            "HUF","RON","RUB","UAH","BRL","MXN","ARS","CLP",
+            "COP","PEN",
+        ]
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.caption("Base")
+            fx_base  = st.selectbox("Base currency", BASE_CURRENCIES,
+                                     key="fx_base", label_visibility="collapsed")
+        with col_b:
+            st.caption("Quote")
+            fx_quote = st.selectbox("Quote currency",
+                                     [c for c in BASE_CURRENCIES if c != fx_base],
+                                     key="fx_quote", label_visibility="collapsed",
+                                     index=BASE_CURRENCIES.index("INR") - 1)
+
+        use_custom = st.toggle("Use custom pair", value=False, key="fx_custom_toggle")
+
+        if use_custom:
+            custom_ticker = f"{fx_quote}=X" if fx_base == "USD" else f"{fx_base}{fx_quote}=X"
+            primary_name   = f"{fx_base}/{fx_quote}"
+            primary_ticker = custom_ticker
         else:
-            # Show grouped by region
-            fx_region = st.selectbox("Region", [
-                "🌍 Major Pairs", "🌏 Asian", "🌍 Middle East & Africa",
-                "🇪🇺 European", "🌎 Americas", "🔀 Cross Pairs (non-USD)"
-            ], label_visibility="collapsed")
+            primary_name   = popular_pick
+            primary_ticker = POPULAR_PAIRS[popular_pick]
 
-            region_filter = {
-                "🌍 Major Pairs":              ["USD/INR","EUR/USD","GBP/USD","USD/JPY","USD/CHF","AUD/USD","NZD/USD","USD/CAD"],
-                "🌏 Asian":                    ["USD/CNY","USD/HKD","USD/SGD","USD/KRW","USD/TWD","USD/MYR","USD/THB","USD/PHP","USD/IDR","USD/BDT","USD/PKR","USD/LKR","USD/NPR","USD/VND"],
-                "🌍 Middle East & Africa":     ["USD/AED","USD/SAR","USD/QAR","USD/KWD","USD/BHD","USD/OMR","USD/ILS","USD/TRY","USD/EGP","USD/ZAR","USD/NGN","USD/KES"],
-                "🇪🇺 European":               ["USD/SEK","USD/NOK","USD/DKK","USD/PLN","USD/CZK","USD/HUF","USD/RON","USD/RUB","USD/UAH"],
-                "🌎 Americas":                 ["USD/BRL","USD/MXN","USD/ARS","USD/CLP","USD/COP","USD/PEN"],
-                "🔀 Cross Pairs (non-USD)":    ["EUR/INR","GBP/INR","JPY/INR","EUR/GBP","EUR/JPY","GBP/JPY","AUD/JPY","EUR/CHF"],
-            }
-            prefix_list = region_filter[fx_region]
-            fx_subset = {k: v for k, v in FOREX.items()
-                        if any(k.startswith(p) for p in prefix_list)}
-            primary_name   = st.selectbox("Pair", list(fx_subset.keys()),
-                                           label_visibility="collapsed")
-            primary_ticker = fx_subset.get(primary_name, "INR=X")
+    st.markdown("---")
+    period = st.select_slider("Period", options=["1d","5d","1mo","3mo","6mo","1y","2y"], value="1mo")
 
+    # ── Cross Asset Comparison ────────────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("**🔀 Asset vs Currency**")
+    st.caption("Compare any asset against a currency pair.")
+    compare_on = st.toggle("Enable Comparison", value=False, key="ca_toggle")
+    compare_name = compare_ticker = None
+
+    # Flat lookup for the ASSET side (stocks, commodities, crypto, indices)
+    CA_ASSETS = {
+        "📈 Nifty 50":   "^NSEI",
+        "📈 Sensex":     "^BSESN",
+        "📈 Nifty Bank": "^NSEBANK",
+    }
+    for k, v in MCX.items():
+        CA_ASSETS[f"🏅 {k}"] = v
+    for k, v in CRYPTO.items():
+        CA_ASSETS[f"₿ {k}"] = v
+
+    # Short labels for forex dropdown in cross-asset
+    CA_FOREX = {
+        "USD/INR":  "INR=X",
+        "EUR/USD":  "EURUSD=X",
+        "GBP/USD":  "GBPUSD=X",
+        "USD/JPY":  "JPY=X",
+        "EUR/INR":  "EURINR=X",
+        "GBP/INR":  "GBPINR=X",
+        "USD/AED":  "AED=X",
+        "USD/CNY":  "CNY=X",
+        "AUD/USD":  "AUDUSD=X",
+        "USD/SGD":  "SGD=X",
+        "USD/CHF":  "CHF=X",
+        "USD/CAD":  "CAD=X",
+        "USD/KRW":  "KRW=X",
+        "USD/MYR":  "MYR=X",
+        "USD/TRY":  "TRY=X",
+        "USD/ZAR":  "ZAR=X",
+        "USD/BRL":  "BRL=X",
+        "USD/MXN":  "MXN=X",
+        "USD/SAR":  "SAR=X",
+        "USD/HKD":  "HKD=X",
+    }
+
+    if compare_on:
+        st.markdown("**Asset**")
+        ca_type = st.radio("Asset type", ["📈 Index","🏅 Commodity","₿ Crypto","🇮🇳 Stock"],
+                            key="ca_type", horizontal=True, label_visibility="collapsed")
+
+        if ca_type == "🇮🇳 Stock":
+            ca_q1 = st.text_input("Search stock", placeholder="e.g. Reliance, TCS…",
+                                   key="ca_q1", label_visibility="collapsed")
+            if ca_q1:
+                ca_r1 = search_companies(ca_q1, all_companies)
+                for _, row in ca_r1.iterrows():
+                    if st.button(f"{row['name']} [{row['symbol']}]",
+                                 key=f"ca1_{row['symbol']}", use_container_width=True):
+                        st.session_state.ca_name1   = row["name"]
+                        st.session_state.ca_ticker1 = row["yf_ns"]
+            if "ca_name1" in st.session_state:
+                st.caption(f"✅ {st.session_state.ca_name1}")
+        else:
+            prefix = {"📈 Index":"📈","🏅 Commodity":"🏅","₿ Crypto":"₿"}[ca_type]
+            opts1  = {k: v for k, v in CA_ASSETS.items() if k.startswith(prefix)}
+            pick1  = st.selectbox("Pick asset", list(opts1.keys()),
+                                   key="ca_pick1", label_visibility="collapsed")
+            st.session_state.ca_name1   = pick1
+            st.session_state.ca_ticker1 = opts1[pick1]
+
+        st.markdown("**Currency**")
+        pick_fx = st.selectbox("Pick currency pair", list(CA_FOREX.keys()),
+                                key="ca_fx_pick", label_visibility="collapsed")
+        st.session_state.ca_name2   = pick_fx
+        st.session_state.ca_ticker2 = CA_FOREX[pick_fx]
+
+        compare_name   = st.session_state.get("ca_name1", "₿ Bitcoin")
+        compare_ticker = st.session_state.get("ca_ticker1", "BTC-USD")
     st.markdown("---")
     period = st.select_slider("Period", options=["1d","5d","1mo","3mo","6mo","1y","2y"], value="1mo")
 
@@ -930,11 +1019,11 @@ if not price_df.empty:
 else:
     st.warning("Price data unavailable. Check the ticker or try BSE (.BO) instead of NSE (.NS).")
 
-# ── Cross Asset Comparison ────────────────────────────────────────────────────
+# ── Asset vs Currency Comparison ──────────────────────────────────────────────
 if compare_on and "ca_name1" in st.session_state and "ca_name2" in st.session_state:
-    ca_name1   = st.session_state.ca_name1
+    ca_name1   = st.session_state.ca_name1    # asset
     ca_ticker1 = st.session_state.ca_ticker1
-    ca_name2   = st.session_state.ca_name2
+    ca_name2   = st.session_state.ca_name2    # currency pair
     ca_ticker2 = st.session_state.ca_ticker2
 
     with st.spinner(f"Loading {ca_name1} vs {ca_name2}…"):
