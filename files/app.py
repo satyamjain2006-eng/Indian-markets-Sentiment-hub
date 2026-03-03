@@ -789,7 +789,15 @@ all_companies = load_indian_companies()
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## 📊 Market Hub")
+    col_logo, col_title = st.columns([1, 3])
+    with col_logo:
+        try:
+            import os as _os
+            st.image(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "icon.png"), width=52)
+        except Exception:
+            st.markdown("📊")
+    with col_title:
+        st.markdown("<div style='padding-top:10px;font-size:1.15rem;font-weight:700;color:#e0e6f0'>Market Hub</div>", unsafe_allow_html=True)
     st.markdown("---")
 
     asset_class = st.radio(
@@ -1038,7 +1046,15 @@ with st.sidebar:
 
 
 # ── Header ────────────────────────────────────────────────────────────────────
-st.markdown("# 📊 Indian Market Sentiment Hub")
+col_h1, col_h2 = st.columns([1, 14])
+with col_h1:
+    try:
+        import os as _os
+        st.image(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "icon.png"), width=52)
+    except Exception:
+        pass
+with col_h2:
+    st.markdown("<h1 style='margin-top:4px;color:#e0e6f0'>Indian Market Sentiment Hub</h1>", unsafe_allow_html=True)
 last_updated = datetime.now().strftime("%d %b %Y, %I:%M:%S %p")
 st.markdown(
     f"**{asset_class}** &nbsp;›&nbsp; **{primary_name}** "
