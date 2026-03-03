@@ -647,44 +647,82 @@ def build_comparison_chart(df1, df2, label1, label2) -> go.Figure:
 
 
 def build_sentiment_trend(df: pd.DataFrame) -> go.Figure:
-    df = df.sort_values("published_dt").reset_index(drop=True).copy()
-    df["article_num"] = df.index + 1
-    df["rolling_avg"] = df["compound"].rolling(3, min_periods=1).mean()
-    bar_colors = [sentiment_color(l) for l in df["label"]]
+    # Group articles by date and compute average sentiment per day
+    df = df.copy()
+    df["date"] = df["published_dt"].dt.date
+    daily = (
+        df.groupby("date")
+        .agg(
+            avg_score=("compound", "mean"),
+            article_count=("compound", "count"),
+            titles=("title", lambda x: "<br>".join(f"• {t[:60]}…" if len(t) > 60 else f"• {t}" for t in x))
+        )
+        .reset_index()
+        .sort_values("date")
+    )
+    daily["date"]    = pd.to_datetime(daily["date"])
+    daily["label"]   = daily["avg_score"].apply(label_from_score)
+    daily["color"]   = daily["label"].apply(sentiment_color)
+    daily["rolling"] = daily["avg_score"].rolling(3, min_periods=1).mean()
+
     fig = go.Figure()
+
+    # Bars — one per day, coloured by sentiment
     fig.add_trace(go.Bar(
-        x=df["article_num"], y=df["compound"], name="Score",
-        marker_color=bar_colors,
-        customdata=df["title"],
-        hovertemplate="<b>%{customdata}</b><br>Score: %{y:.3f}<extra></extra>",
-        opacity=0.6,
+        x=daily["date"],
+        y=daily["avg_score"],
+        name="Daily Avg",
+        marker_color=daily["color"],
+        opacity=0.65,
+        customdata=np.stack([daily["titles"], daily["article_count"]], axis=1),
+        hovertemplate=(
+            "<b>%{x|%d %b %Y}</b><br>"
+            "Avg Score: <b>%{y:.3f}</b><br>"
+            "Articles: %{customdata[1]}<br>"
+            "%{customdata[0]}<extra></extra>"
+        ),
     ))
+
+    # Trend line
     fig.add_trace(go.Scatter(
-        x=df["article_num"], y=df["rolling_avg"],
-        name="3-art avg", mode="lines",
-        line=dict(color="#5c7cfa", width=2.5, shape="spline", smoothing=0.8),
+        x=daily["date"],
+        y=daily["rolling"],
+        name="Trend",
+        mode="lines",
+        line=dict(color="#5c7cfa", width=2.5, shape="spline", smoothing=0.7),
+        hoverinfo="skip",
     ))
-    fig.add_hline(y=0,     line_dash="dot", line_color="#333", line_width=1)
-    fig.add_hline(y=0.07,  line_dash="dot", line_color="rgba(0,212,170,0.3)", line_width=1)
-    fig.add_hline(y=-0.07, line_dash="dot", line_color="rgba(255,75,110,0.3)", line_width=1)
+
+    fig.add_hline(y=0,     line_dash="dot", line_color="#333",                   line_width=1)
+    fig.add_hline(y=0.07,  line_dash="dot", line_color="rgba(0,212,170,0.3)",    line_width=1)
+    fig.add_hline(y=-0.07, line_dash="dot", line_color="rgba(255,75,110,0.3)",   line_width=1)
+
     fig.update_layout(
         template="plotly_dark",
         paper_bgcolor="#0e1320", plot_bgcolor="#0e1320",
         margin=dict(l=10, r=10, t=40, b=10), height=270,
         title=dict(
-            text="<b>Sentiment Trend</b>",
+            text="<b>Daily Sentiment</b>",
             font=dict(size=13, color="#c0cce0"),
             x=0.01, xanchor="left"
         ),
-        xaxis=dict(title="Article #", showgrid=False, color="#4a5568"),
-        yaxis=dict(gridcolor="#1a2035", range=[-1.1, 1.1],
-                   color="#4a5568", zeroline=False, side="right"),
+        xaxis=dict(
+            showgrid=False, color="#4a5568",
+            tickformat="%d %b",
+            tickangle=-30,
+            dtick="D1" if len(daily) <= 14 else None,
+        ),
+        yaxis=dict(
+            gridcolor="#1a2035", range=[-1.1, 1.1],
+            color="#4a5568", zeroline=False, side="right",
+        ),
         legend=dict(
             orientation="h", y=1.08, x=0.5, xanchor="center",
             font=dict(size=10, color="#8892a4"),
             bgcolor="rgba(0,0,0,0)"
         ),
-        bargap=0.3,
+        bargap=0.25,
+        hovermode="x unified",
     )
     return fig
 
