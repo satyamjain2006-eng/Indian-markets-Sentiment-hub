@@ -887,12 +887,12 @@ def fetch_price(ticker: str, period: str) -> pd.DataFrame:
                 auto_adjust=True
             )
          else:
-             data = yf.download(
-                 ticker,
-                 period=period,
-                 progress=False,
-                 auto_adjust=True
-             )
+            data = yf.download(
+                ticker,
+                period=period,
+                progress=False,
+                auto_adjust=True
+            )
         if isinstance(data.columns, pd.MultiIndex):
             data.columns = data.columns.get_level_values(0)
         return data.reset_index()
