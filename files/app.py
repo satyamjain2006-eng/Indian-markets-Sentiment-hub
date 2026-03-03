@@ -476,39 +476,73 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
 # ── Chart builders ────────────────────────────────────────────────────────────
 def build_price_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
     df  = add_indicators(df)
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
-                        row_heights=[0.7, 0.3], vertical_spacing=0.04)
+    fig = make_subplots(
+        rows=2, cols=1, shared_xaxes=True,
+        row_heights=[0.72, 0.28], vertical_spacing=0.06,
+        subplot_titles=("", "MACD")
+    )
+    # Candlesticks
     fig.add_trace(go.Candlestick(
         x=df["Date"], open=df["Open"], high=df["High"],
         low=df["Low"], close=df["Close"], name="Price",
-        increasing_line_color="#00d4aa", decreasing_line_color="#ff4b6e"
+        increasing_line_color="#00d4aa", decreasing_line_color="#ff4b6e",
+        increasing_fillcolor="#00d4aa", decreasing_fillcolor="#ff4b6e",
+        line=dict(width=1), whiskerwidth=0.6,
     ), row=1, col=1)
+    # MAs
     fig.add_trace(go.Scatter(x=df["Date"], y=df["MA20"], name="MA20",
-        line=dict(color="#5c7cfa", width=1.5, dash="dot")), row=1, col=1)
+        line=dict(color="#5c7cfa", width=1.5, dash="dot"),
+        hovertemplate="MA20: %{y:.2f}<extra></extra>"), row=1, col=1)
     fig.add_trace(go.Scatter(x=df["Date"], y=df["MA50"], name="MA50",
-        line=dict(color="#ffd166", width=1.5, dash="dot")), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df["Date"], y=df["BB_upper"], name="BB Upper",
-        line=dict(color="rgba(150,120,255,0.5)", width=1)), row=1, col=1)
+        line=dict(color="#ffd166", width=1.5, dash="dot"),
+        hovertemplate="MA50: %{y:.2f}<extra></extra>"), row=1, col=1)
+    # Bollinger Bands — filled area, no separate legend entries for bands
+    fig.add_trace(go.Scatter(x=df["Date"], y=df["BB_upper"], name="BB Bands",
+        line=dict(color="rgba(150,120,255,0.35)", width=1),
+        hovertemplate="BB Upper: %{y:.2f}<extra></extra>"), row=1, col=1)
     fig.add_trace(go.Scatter(x=df["Date"], y=df["BB_lower"], name="BB Lower",
-        line=dict(color="rgba(150,120,255,0.5)", width=1),
-        fill="tonexty", fillcolor="rgba(150,120,255,0.05)"), row=1, col=1)
+        line=dict(color="rgba(150,120,255,0.35)", width=1),
+        fill="tonexty", fillcolor="rgba(150,120,255,0.06)",
+        showlegend=False,
+        hovertemplate="BB Lower: %{y:.2f}<extra></extra>"), row=1, col=1)
+    # MACD panel
     hist_colors = ["#00d4aa" if v >= 0 else "#ff4b6e" for v in df["MACD_hist"].fillna(0)]
-    fig.add_trace(go.Bar(x=df["Date"], y=df["MACD_hist"], name="MACD Hist",
-        marker_color=hist_colors), row=2, col=1)
+    fig.add_trace(go.Bar(x=df["Date"], y=df["MACD_hist"], name="Histogram",
+        marker_color=hist_colors, opacity=0.7), row=2, col=1)
     fig.add_trace(go.Scatter(x=df["Date"], y=df["MACD"], name="MACD",
         line=dict(color="#5c7cfa", width=1.5)), row=2, col=1)
     fig.add_trace(go.Scatter(x=df["Date"], y=df["Signal"], name="Signal",
         line=dict(color="#ffd166", width=1.5)), row=2, col=1)
+
     fig.update_layout(
-        template="plotly_dark", paper_bgcolor="#131929", plot_bgcolor="#131929",
-        margin=dict(l=0, r=0, t=30, b=0), height=480,
-        title=dict(text=f"<b>{ticker}</b>", font=dict(size=14, color="#8892c4")),
-        legend=dict(orientation="h", y=1.08, font=dict(size=10)),
+        template="plotly_dark",
+        paper_bgcolor="#0e1320",
+        plot_bgcolor="#0e1320",
+        margin=dict(l=10, r=10, t=55, b=10),
+        height=500,
+        title=dict(
+            text=f"<b>{ticker}</b>",
+            font=dict(size=15, color="#c0cce0"),
+            x=0.01, xanchor="left", y=0.97
+        ),
+        legend=dict(
+            orientation="h",
+            y=1.06, x=0.5, xanchor="center",
+            font=dict(size=10, color="#8892a4"),
+            bgcolor="rgba(0,0,0,0)",
+            itemsizing="constant",
+        ),
         xaxis_rangeslider_visible=False,
-        xaxis2=dict(showgrid=False),
-        yaxis=dict(gridcolor="#1a2035"),
-        yaxis2=dict(gridcolor="#1a2035"),
+        hovermode="x unified",
+        xaxis=dict(showgrid=False, zeroline=False, color="#4a5568"),
+        xaxis2=dict(showgrid=False, zeroline=False, color="#4a5568"),
+        yaxis=dict(gridcolor="#1a2035", zeroline=False, color="#4a5568", side="right"),
+        yaxis2=dict(gridcolor="#1a2035", zeroline=True, zerolinecolor="#2a3560",
+                    color="#4a5568", side="right"),
     )
+    # Style the MACD subplot title
+    fig.layout.annotations[0].font.color = "#4a5568"
+    fig.layout.annotations[0].font.size  = 11
     return fig
 
 
@@ -518,15 +552,28 @@ def build_comparison_chart(df1, df2, label1, label2) -> go.Figure:
         if df.empty or "Close" not in df.columns:
             continue
         norm = df["Close"].astype(float) / df["Close"].astype(float).iloc[0] * 100
-        fig.add_trace(go.Scatter(x=df["Date"], y=norm, name=label,
-            line=dict(color=color, width=2)))
+        fig.add_trace(go.Scatter(
+            x=df["Date"], y=norm, name=label,
+            line=dict(color=color, width=2),
+            hovertemplate="%{y:.1f}<extra>" + label + "</extra>"
+        ))
     fig.update_layout(
-        template="plotly_dark", paper_bgcolor="#131929", plot_bgcolor="#131929",
-        margin=dict(l=0, r=0, t=30, b=0), height=300,
-        title=dict(text="<b>Performance Comparison (Normalised to 100)</b>",
-                   font=dict(size=13, color="#8892c4")),
-        yaxis=dict(gridcolor="#1a2035"), xaxis=dict(showgrid=False),
-        legend=dict(orientation="h", y=1.1)
+        template="plotly_dark",
+        paper_bgcolor="#0e1320", plot_bgcolor="#0e1320",
+        margin=dict(l=10, r=10, t=55, b=10), height=320,
+        title=dict(
+            text="<b>Performance Comparison</b> — Normalised to 100",
+            font=dict(size=14, color="#c0cce0"),
+            x=0.01, xanchor="left", y=0.97
+        ),
+        yaxis=dict(gridcolor="#1a2035", zeroline=False, color="#4a5568", side="right"),
+        xaxis=dict(showgrid=False, color="#4a5568"),
+        legend=dict(
+            orientation="h", y=1.06, x=0.5, xanchor="center",
+            font=dict(size=11, color="#8892a4"),
+            bgcolor="rgba(0,0,0,0)"
+        ),
+        hovermode="x unified",
     )
     return fig
 
@@ -539,25 +586,37 @@ def build_sentiment_trend(df: pd.DataFrame) -> go.Figure:
     fig = go.Figure()
     fig.add_trace(go.Bar(
         x=df["article_num"], y=df["compound"], name="Score",
-        marker_color=bar_colors, hovertext=df["title"],
-        hoverinfo="text+y", opacity=0.55,
+        marker_color=bar_colors,
+        customdata=df["title"],
+        hovertemplate="<b>%{customdata}</b><br>Score: %{y:.3f}<extra></extra>",
+        opacity=0.6,
     ))
     fig.add_trace(go.Scatter(
         x=df["article_num"], y=df["rolling_avg"],
-        name="3-article avg", mode="lines+markers",
-        line=dict(color="#5c7cfa", width=2), marker=dict(size=5),
+        name="3-art avg", mode="lines",
+        line=dict(color="#5c7cfa", width=2.5, shape="spline", smoothing=0.8),
     ))
-    fig.add_hline(y=0,     line_dash="dot", line_color="#555")
-    fig.add_hline(y=0.07,  line_dash="dot", line_color="#00d4aa", line_width=1)
-    fig.add_hline(y=-0.07, line_dash="dot", line_color="#ff4b6e", line_width=1)
+    fig.add_hline(y=0,     line_dash="dot", line_color="#333", line_width=1)
+    fig.add_hline(y=0.07,  line_dash="dot", line_color="rgba(0,212,170,0.3)", line_width=1)
+    fig.add_hline(y=-0.07, line_dash="dot", line_color="rgba(255,75,110,0.3)", line_width=1)
     fig.update_layout(
-        template="plotly_dark", paper_bgcolor="#131929", plot_bgcolor="#131929",
-        margin=dict(l=0, r=0, t=30, b=0), height=260,
-        title=dict(text="<b>Sentiment Trend Across Articles</b>",
-                   font=dict(size=12, color="#8892c4")),
-        xaxis=dict(title="Article #", showgrid=False),
-        yaxis=dict(title="Score", gridcolor="#1a2035", range=[-1.1, 1.1]),
-        legend=dict(orientation="h", y=1.15, font=dict(size=10)),
+        template="plotly_dark",
+        paper_bgcolor="#0e1320", plot_bgcolor="#0e1320",
+        margin=dict(l=10, r=10, t=40, b=10), height=270,
+        title=dict(
+            text="<b>Sentiment Trend</b>",
+            font=dict(size=13, color="#c0cce0"),
+            x=0.01, xanchor="left"
+        ),
+        xaxis=dict(title="Article #", showgrid=False, color="#4a5568"),
+        yaxis=dict(gridcolor="#1a2035", range=[-1.1, 1.1],
+                   color="#4a5568", zeroline=False, side="right"),
+        legend=dict(
+            orientation="h", y=1.08, x=0.5, xanchor="center",
+            font=dict(size=10, color="#8892a4"),
+            bgcolor="rgba(0,0,0,0)"
+        ),
+        bargap=0.3,
     )
     return fig
 
@@ -780,17 +839,27 @@ if compare_on and "ca_name1" in st.session_state and "ca_name2" in st.session_st
             norm = df["Close"].astype(float) / df["Close"].astype(float).iloc[0] * 100
             fig_ca.add_trace(go.Scatter(
                 x=df["Date"], y=norm, name=label,
-                line=dict(color=color, width=2),
+                line=dict(color=color, width=2.5, shape="spline", smoothing=0.6),
                 hovertemplate="%{y:.1f}<extra>" + label + "</extra>"
             ))
         fig_ca.update_layout(
-            template="plotly_dark", paper_bgcolor="#131929", plot_bgcolor="#131929",
-            margin=dict(l=0, r=0, t=40, b=0), height=360,
-            title=dict(text=f"<b>{ca_name1} vs {ca_name2}</b> — Normalised to 100",
-                       font=dict(size=14, color="#8892c4")),
-            yaxis=dict(title="Normalised Price", gridcolor="#1a2035"),
-            xaxis=dict(showgrid=False),
-            legend=dict(orientation="h", y=1.12, font=dict(size=11)),
+            template="plotly_dark",
+            paper_bgcolor="#0e1320", plot_bgcolor="#0e1320",
+            margin=dict(l=10, r=10, t=55, b=10), height=370,
+            title=dict(
+                text=f"<b>{ca_name1}  vs  {ca_name2}</b> — Normalised to 100",
+                font=dict(size=14, color="#c0cce0"),
+                x=0.01, xanchor="left", y=0.97
+            ),
+            yaxis=dict(gridcolor="#1a2035", zeroline=False,
+                       color="#4a5568", side="right"),
+            xaxis=dict(showgrid=False, color="#4a5568"),
+            legend=dict(
+                orientation="h", y=1.06, x=0.5, xanchor="center",
+                font=dict(size=12, color="#c0cce0"),
+                bgcolor="rgba(0,0,0,0)"
+            ),
+            hovermode="x unified",
         )
         st.plotly_chart(fig_ca, use_container_width=True)
 
@@ -831,12 +900,27 @@ if not news_df.empty:
         fig_donut = go.Figure(go.Pie(
             labels=["Positive","Negative","Neutral"],
             values=[counts.get("Positive",0), counts.get("Negative",0), counts.get("Neutral",0)],
-            marker=dict(colors=["#00d4aa","#ff4b6e","#ffd166"]),
-            hole=0.6, textinfo="label+percent", textfont=dict(size=12)
+            marker=dict(
+                colors=["#00d4aa","#ff4b6e","#ffd166"],
+                line=dict(color="#0e1320", width=2)
+            ),
+            hole=0.65,
+            textinfo="label+percent",
+            textfont=dict(size=12, color="#c0cce0"),
+            insidetextorientation="radial",
+            hovertemplate="%{label}: %{value} articles<extra></extra>",
         ))
         fig_donut.update_layout(
-            template="plotly_dark", paper_bgcolor="#131929",
-            margin=dict(l=0, r=0, t=10, b=0), height=260, showlegend=False
+            template="plotly_dark",
+            paper_bgcolor="#0e1320",
+            margin=dict(l=10, r=10, t=10, b=10),
+            height=270,
+            showlegend=True,
+            legend=dict(
+                orientation="h", x=0.5, xanchor="center", y=-0.05,
+                font=dict(size=11, color="#8892a4"),
+                bgcolor="rgba(0,0,0,0)"
+            ),
         )
         st.plotly_chart(fig_donut, use_container_width=True)
 
