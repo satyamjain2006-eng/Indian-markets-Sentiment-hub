@@ -11,14 +11,16 @@ import requests
 import io
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import os
 import warnings
 warnings.filterwarnings("ignore")
 
+# ── Icon loading ──────────────────────────────────────────────────────────────
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 try:
-    import os
-    _icon = Image.open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon_cropped.png"))
+    _icon = Image.open(os.path.join(_BASE_DIR, "icon_cropped.png"))
 except Exception:
-    _icon = "📊"  # fallback if icon.png is missing
+    _icon = "📊"
 
 st.set_page_config(
     page_title="Indian Market Sentiment Hub",
@@ -58,6 +60,8 @@ st.markdown("""
     h1,h2,h3,h4 { color:#e0e6f0 !important; }
     .stTabs [data-baseweb="tab"] { color:#6b7a99; }
     .stTabs [aria-selected="true"] { color:#5c7cfa !important; }
+    /* Fix sentiment section charts overlapping */
+    [data-testid="stHorizontalBlock"] > div { min-width: 0; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -71,71 +75,11 @@ CRYPTO = {
     "Dogecoin":"DOGE-USD","Avalanche":"AVAX-USD","Polkadot":"DOT-USD","Chainlink":"LINK-USD"
 }
 
-FOREX = {
-    "USD/INR  · US Dollar → Indian Rupee":        "INR=X",
-    "EUR/USD  · Euro → US Dollar":                "EURUSD=X",
-    "GBP/USD  · British Pound → US Dollar":       "GBPUSD=X",
-    "USD/JPY  · US Dollar → Japanese Yen":        "JPY=X",
-    "USD/CHF  · US Dollar → Swiss Franc":         "CHF=X",
-    "AUD/USD  · Australian Dollar → US Dollar":   "AUDUSD=X",
-    "NZD/USD  · New Zealand Dollar → US Dollar":  "NZDUSD=X",
-    "USD/CAD  · US Dollar → Canadian Dollar":     "CAD=X",
-    "USD/CNY  · US Dollar → Chinese Yuan":        "CNY=X",
-    "USD/HKD  · US Dollar → Hong Kong Dollar":    "HKD=X",
-    "USD/SGD  · US Dollar → Singapore Dollar":    "SGD=X",
-    "USD/KRW  · US Dollar → South Korean Won":    "KRW=X",
-    "USD/TWD  · US Dollar → Taiwan Dollar":       "TWD=X",
-    "USD/MYR  · US Dollar → Malaysian Ringgit":   "MYR=X",
-    "USD/THB  · US Dollar → Thai Baht":           "THB=X",
-    "USD/PHP  · US Dollar → Philippine Peso":     "PHP=X",
-    "USD/IDR  · US Dollar → Indonesian Rupiah":   "IDR=X",
-    "USD/BDT  · US Dollar → Bangladeshi Taka":    "BDT=X",
-    "USD/PKR  · US Dollar → Pakistani Rupee":     "PKR=X",
-    "USD/LKR  · US Dollar → Sri Lankan Rupee":    "LKR=X",
-    "USD/NPR  · US Dollar → Nepalese Rupee":      "NPR=X",
-    "USD/VND  · US Dollar → Vietnamese Dong":     "VND=X",
-    "USD/AED  · US Dollar → UAE Dirham":          "AED=X",
-    "USD/SAR  · US Dollar → Saudi Riyal":         "SAR=X",
-    "USD/QAR  · US Dollar → Qatari Riyal":        "QAR=X",
-    "USD/KWD  · US Dollar → Kuwaiti Dinar":       "KWD=X",
-    "USD/BHD  · US Dollar → Bahraini Dinar":      "BHD=X",
-    "USD/OMR  · US Dollar → Omani Rial":          "OMR=X",
-    "USD/ILS  · US Dollar → Israeli Shekel":      "ILS=X",
-    "USD/TRY  · US Dollar → Turkish Lira":        "TRY=X",
-    "USD/EGP  · US Dollar → Egyptian Pound":      "EGP=X",
-    "USD/ZAR  · US Dollar → South African Rand":  "ZAR=X",
-    "USD/NGN  · US Dollar → Nigerian Naira":      "NGN=X",
-    "USD/KES  · US Dollar → Kenyan Shilling":     "KES=X",
-    "USD/SEK  · US Dollar → Swedish Krona":       "SEK=X",
-    "USD/NOK  · US Dollar → Norwegian Krone":     "NOK=X",
-    "USD/DKK  · US Dollar → Danish Krone":        "DKK=X",
-    "USD/PLN  · US Dollar → Polish Zloty":        "PLN=X",
-    "USD/CZK  · US Dollar → Czech Koruna":        "CZK=X",
-    "USD/HUF  · US Dollar → Hungarian Forint":    "HUF=X",
-    "USD/RON  · US Dollar → Romanian Leu":        "RON=X",
-    "USD/RUB  · US Dollar → Russian Ruble":       "RUB=X",
-    "USD/UAH  · US Dollar → Ukrainian Hryvnia":   "UAH=X",
-    "USD/BRL  · US Dollar → Brazilian Real":      "BRL=X",
-    "USD/MXN  · US Dollar → Mexican Peso":        "MXN=X",
-    "USD/ARS  · US Dollar → Argentine Peso":      "ARS=X",
-    "USD/CLP  · US Dollar → Chilean Peso":        "CLP=X",
-    "USD/COP  · US Dollar → Colombian Peso":      "COP=X",
-    "USD/PEN  · US Dollar → Peruvian Sol":        "PEN=X",
-    "EUR/INR  · Euro → Indian Rupee":             "EURINR=X",
-    "GBP/INR  · British Pound → Indian Rupee":    "GBPINR=X",
-    "JPY/INR  · Japanese Yen → Indian Rupee":     "JPYINR=X",
-    "EUR/GBP  · Euro → British Pound":            "EURGBP=X",
-    "EUR/JPY  · Euro → Japanese Yen":             "EURJPY=X",
-    "GBP/JPY  · British Pound → Japanese Yen":    "GBPJPY=X",
-    "AUD/JPY  · Australian Dollar → Japanese Yen":"AUDJPY=X",
-    "EUR/CHF  · Euro → Swiss Franc":              "EURCHF=X",
-}
-
 INDICES = [
-    ("NIFTY50",  "Nifty 50",         "^NSEI",   "^NSEI"),
-    ("SENSEX",   "Sensex",           "^BSESN",  "^BSESN"),
-    ("NIFTYBANK","Nifty Bank",       "^NSEBANK", "^NSEBANK"),
-    ("NIFTYMID50","Nifty Midcap 50", "^NSEMDCP50","^NSEMDCP50"),
+    ("NIFTY50",  "Nifty 50",          "^NSEI",      "^NSEI"),
+    ("SENSEX",   "Sensex",            "^BSESN",     "^BSESN"),
+    ("NIFTYBANK","Nifty Bank",        "^NSEBANK",   "^NSEBANK"),
+    ("NIFTYMID50","Nifty Midcap 50",  "^NSEMDCP50", "^NSEMDCP50"),
 ]
 
 COMPANY_LIST = [
@@ -293,7 +237,6 @@ def load_indian_companies() -> pd.DataFrame:
                 return df.dropna().reset_index(drop=True)
         except Exception:
             pass
-
     df = pd.DataFrame(COMPANY_LIST, columns=["symbol", "name"])
     df["name"]     = df["name"].str.strip()
     df["symbol"]   = df["symbol"].str.strip()
@@ -402,9 +345,6 @@ vader = SentimentIntensityAnalyzer()
 def vader_score(text: str) -> float:
     return vader.polarity_scores(text)["compound"]
 
-def combined_score(text: str) -> float:
-    return round(vader_score(text), 4)
-
 def label_from_score(score: float) -> str:
     if score >= 0.07:  return "Positive"
     if score <= -0.07: return "Negative"
@@ -433,7 +373,6 @@ def fetch_news(company_name: str) -> pd.DataFrame:
 
     indian_sources = {"Economic Times", "MoneyControl", "LiveMint", "Reuters"}
 
-    # ── Fetch one source, return list of raw article dicts ───────────────────
     def fetch_source(source: str, url: str) -> list:
         articles = []
         try:
@@ -465,7 +404,6 @@ def fetch_news(company_name: str) -> pd.DataFrame:
             pass
         return articles
 
-    # ── Fire all 7 sources in parallel ───────────────────────────────────────
     all_articles = []
     with ThreadPoolExecutor(max_workers=7) as executor:
         futures = {executor.submit(fetch_source, src, url): src
@@ -479,7 +417,6 @@ def fetch_news(company_name: str) -> pd.DataFrame:
     if not all_articles:
         return pd.DataFrame()
 
-    # ── Deduplicate by title ──────────────────────────────────────────────────
     seen_titles = set()
     deduped = []
     for art in all_articles:
@@ -570,27 +507,15 @@ def build_price_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
         line=dict(color="#5c7cfa", width=1.5)), row=2, col=1)
     fig.add_trace(go.Scatter(x=df["Date"], y=df["Signal"], name="Signal",
         line=dict(color="#ffd166", width=1.5)), row=2, col=1)
-
     fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="#0e1320",
-        plot_bgcolor="#0e1320",
-        margin=dict(l=10, r=10, t=55, b=10),
-        height=500,
-        title=dict(
-            text=f"<b>{ticker}</b>",
-            font=dict(size=15, color="#c0cce0"),
-            x=0.01, xanchor="left", y=0.97
-        ),
-        legend=dict(
-            orientation="h",
-            y=1.06, x=0.5, xanchor="center",
-            font=dict(size=10, color="#8892a4"),
-            bgcolor="rgba(0,0,0,0)",
-            itemsizing="constant",
-        ),
-        xaxis_rangeslider_visible=False,
-        hovermode="x unified",
+        template="plotly_dark", paper_bgcolor="#0e1320", plot_bgcolor="#0e1320",
+        margin=dict(l=10, r=10, t=55, b=10), height=500,
+        title=dict(text=f"<b>{ticker}</b>", font=dict(size=15, color="#c0cce0"),
+                   x=0.01, xanchor="left", y=0.97),
+        legend=dict(orientation="h", y=1.06, x=0.5, xanchor="center",
+                    font=dict(size=10, color="#8892a4"), bgcolor="rgba(0,0,0,0)",
+                    itemsizing="constant"),
+        xaxis_rangeslider_visible=False, hovermode="x unified",
         xaxis=dict(showgrid=False, zeroline=False, color="#4a5568"),
         xaxis2=dict(showgrid=False, zeroline=False, color="#4a5568"),
         yaxis=dict(gridcolor="#1a2035", zeroline=False, color="#4a5568", side="right"),
@@ -602,38 +527,6 @@ def build_price_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
     return fig
 
 
-def build_comparison_chart(df1, df2, label1, label2) -> go.Figure:
-    fig = go.Figure()
-    for df, label, color in [(df1, label1, "#5c7cfa"), (df2, label2, "#00d4aa")]:
-        if df.empty or "Close" not in df.columns:
-            continue
-        norm = df["Close"].astype(float) / df["Close"].astype(float).iloc[0] * 100
-        fig.add_trace(go.Scatter(
-            x=df["Date"], y=norm, name=label,
-            line=dict(color=color, width=2),
-            hovertemplate="%{y:.1f}<extra>" + label + "</extra>"
-        ))
-    fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="#0e1320", plot_bgcolor="#0e1320",
-        margin=dict(l=10, r=10, t=55, b=10), height=320,
-        title=dict(
-            text="<b>Performance Comparison</b> — Normalised to 100",
-            font=dict(size=14, color="#c0cce0"),
-            x=0.01, xanchor="left", y=0.97
-        ),
-        yaxis=dict(gridcolor="#1a2035", zeroline=False, color="#4a5568", side="right"),
-        xaxis=dict(showgrid=False, color="#4a5568"),
-        legend=dict(
-            orientation="h", y=1.06, x=0.5, xanchor="center",
-            font=dict(size=11, color="#8892a4"),
-            bgcolor="rgba(0,0,0,0)"
-        ),
-        hovermode="x unified",
-    )
-    return fig
-
-
 def build_sentiment_trend(df: pd.DataFrame) -> go.Figure:
     df = df.copy()
     df["date"] = df["published_dt"].dt.date
@@ -642,7 +535,8 @@ def build_sentiment_trend(df: pd.DataFrame) -> go.Figure:
         .agg(
             avg_score=("compound", "mean"),
             article_count=("compound", "count"),
-            titles=("title", lambda x: "<br>".join(f"• {t[:60]}…" if len(t) > 60 else f"• {t}" for t in x))
+            titles=("title", lambda x: "<br>".join(
+                f"• {t[:60]}…" if len(t) > 60 else f"• {t}" for t in x))
         )
         .reset_index()
         .sort_values("date")
@@ -654,86 +548,56 @@ def build_sentiment_trend(df: pd.DataFrame) -> go.Figure:
 
     fig = go.Figure()
     fig.add_trace(go.Bar(
-        x=daily["date"],
-        y=daily["avg_score"],
-        name="Daily Avg",
-        marker_color=daily["color"],
-        opacity=0.65,
+        x=daily["date"], y=daily["avg_score"], name="Daily Avg",
+        marker_color=daily["color"], opacity=0.65,
         customdata=np.stack([daily["titles"], daily["article_count"]], axis=1),
         hovertemplate=(
-            "<b>%{x|%d %b %Y}</b><br>"
-            "Avg Score: <b>%{y:.3f}</b><br>"
-            "Articles: %{customdata[1]}<br>"
-            "%{customdata[0]}<extra></extra>"
+            "<b>%{x|%d %b %Y}</b><br>Avg Score: <b>%{y:.3f}</b><br>"
+            "Articles: %{customdata[1]}<br>%{customdata[0]}<extra></extra>"
         ),
     ))
     fig.add_trace(go.Scatter(
-        x=daily["date"],
-        y=daily["rolling"],
-        name="Trend",
-        mode="lines",
+        x=daily["date"], y=daily["rolling"], name="Trend", mode="lines",
         line=dict(color="#5c7cfa", width=2.5, shape="spline", smoothing=0.7),
         hoverinfo="skip",
     ))
-    fig.add_hline(y=0,     line_dash="dot", line_color="#333",                   line_width=1)
-    fig.add_hline(y=0.07,  line_dash="dot", line_color="rgba(0,212,170,0.3)",    line_width=1)
-    fig.add_hline(y=-0.07, line_dash="dot", line_color="rgba(255,75,110,0.3)",   line_width=1)
-
+    fig.add_hline(y=0,     line_dash="dot", line_color="#333",                 line_width=1)
+    fig.add_hline(y=0.07,  line_dash="dot", line_color="rgba(0,212,170,0.3)", line_width=1)
+    fig.add_hline(y=-0.07, line_dash="dot", line_color="rgba(255,75,110,0.3)",line_width=1)
     fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="#0e1320", plot_bgcolor="#0e1320",
-        margin=dict(l=10, r=10, t=40, b=10), height=270,
-        title=dict(
-            text="<b>Daily Sentiment</b>",
-            font=dict(size=13, color="#c0cce0"),
-            x=0.01, xanchor="left"
-        ),
-        xaxis=dict(
-            showgrid=False, color="#4a5568",
-            tickformat="%d %b",
-            tickangle=-30,
-            dtick="D1" if len(daily) <= 14 else None,
-        ),
-        yaxis=dict(
-            gridcolor="#1a2035", range=[-1.1, 1.1],
-            color="#4a5568", zeroline=False, side="right",
-        ),
-        legend=dict(
-            orientation="h", y=1.08, x=0.5, xanchor="center",
-            font=dict(size=10, color="#8892a4"),
-            bgcolor="rgba(0,0,0,0)"
-        ),
-        bargap=0.25,
-        hovermode="x unified",
+        template="plotly_dark", paper_bgcolor="#0e1320", plot_bgcolor="#0e1320",
+        margin=dict(l=10, r=10, t=40, b=10), height=300,
+        title=dict(text="<b>Daily Sentiment Trend</b>",
+                   font=dict(size=13, color="#c0cce0"), x=0.01, xanchor="left"),
+        xaxis=dict(showgrid=False, color="#4a5568", tickformat="%d %b",
+                   tickangle=-30, dtick="D1" if len(daily) <= 14 else None),
+        yaxis=dict(gridcolor="#1a2035", range=[-1.1, 1.1],
+                   color="#4a5568", zeroline=False, side="right"),
+        legend=dict(orientation="h", y=1.08, x=0.5, xanchor="center",
+                    font=dict(size=10, color="#8892a4"), bgcolor="rgba(0,0,0,0)"),
+        bargap=0.25, hovermode="x unified",
     )
     return fig
 
 
-# ── Helper: resolve any asset type to (display_name, yf_ticker) ──────────────
 def resolve_asset(asset_type: str, session_key: str, df_companies: pd.DataFrame):
-    """
-    Returns (name, ticker) or (None, None) if not yet selected.
-    asset_type: one of "📈 Index", "🏅 Commodity", "₿ Crypto", "💱 Forex", "🇮🇳 Stock"
-    session_key: unique prefix to avoid key collisions between Asset A and Asset B
-    """
     name_key   = f"{session_key}_name"
     ticker_key = f"{session_key}_ticker"
 
     CA_ASSETS_INDEX = {
-        "Nifty 50":    "^NSEI",
-        "Sensex":      "^BSESN",
-        "Nifty Bank":  "^NSEBANK",
-        "Nifty Midcap 50": "^NSEMDCP50",
+        "Nifty 50":       "^NSEI",
+        "Sensex":         "^BSESN",
+        "Nifty Bank":     "^NSEBANK",
+        "Nifty Midcap 50":"^NSEMDCP50",
     }
-
     POPULAR_FOREX_SHORT = {
-        "USD/INR":  "INR=X",  "EUR/USD": "EURUSD=X", "GBP/USD": "GBPUSD=X",
-        "USD/JPY":  "JPY=X",  "EUR/INR": "EURINR=X", "GBP/INR": "GBPINR=X",
-        "USD/AED":  "AED=X",  "USD/CNY": "CNY=X",    "AUD/USD": "AUDUSD=X",
-        "USD/SGD":  "SGD=X",  "USD/CHF": "CHF=X",    "USD/CAD": "CAD=X",
-        "USD/KRW":  "KRW=X",  "USD/MYR": "MYR=X",    "USD/TRY": "TRY=X",
-        "USD/ZAR":  "ZAR=X",  "USD/BRL": "BRL=X",    "USD/MXN": "MXN=X",
-        "USD/SAR":  "SAR=X",  "USD/HKD": "HKD=X",
+        "USD/INR":"INR=X","EUR/USD":"EURUSD=X","GBP/USD":"GBPUSD=X",
+        "USD/JPY":"JPY=X","EUR/INR":"EURINR=X","GBP/INR":"GBPINR=X",
+        "USD/AED":"AED=X","USD/CNY":"CNY=X","AUD/USD":"AUDUSD=X",
+        "USD/SGD":"SGD=X","USD/CHF":"CHF=X","USD/CAD":"CAD=X",
+        "USD/KRW":"KRW=X","USD/MYR":"MYR=X","USD/TRY":"TRY=X",
+        "USD/ZAR":"ZAR=X","USD/BRL":"BRL=X","USD/MXN":"MXN=X",
+        "USD/SAR":"SAR=X","USD/HKD":"HKD=X",
     }
 
     if asset_type == "📈 Index":
@@ -741,25 +605,21 @@ def resolve_asset(asset_type: str, session_key: str, df_companies: pd.DataFrame)
                             key=f"{session_key}_idx_pick", label_visibility="collapsed")
         st.session_state[name_key]   = pick
         st.session_state[ticker_key] = CA_ASSETS_INDEX[pick]
-
     elif asset_type == "🏅 Commodity":
         pick = st.selectbox("Select Commodity", list(MCX.keys()),
                             key=f"{session_key}_com_pick", label_visibility="collapsed")
         st.session_state[name_key]   = pick
         st.session_state[ticker_key] = MCX[pick]
-
     elif asset_type == "₿ Crypto":
         pick = st.selectbox("Select Crypto", list(CRYPTO.keys()),
                             key=f"{session_key}_cry_pick", label_visibility="collapsed")
         st.session_state[name_key]   = pick
         st.session_state[ticker_key] = CRYPTO[pick]
-
     elif asset_type == "💱 Forex":
         pick = st.selectbox("Select Forex Pair", list(POPULAR_FOREX_SHORT.keys()),
                             key=f"{session_key}_fx_pick", label_visibility="collapsed")
         st.session_state[name_key]   = pick
         st.session_state[ticker_key] = POPULAR_FOREX_SHORT[pick]
-
     elif asset_type == "🇮🇳 Stock":
         q = st.text_input("Search company / symbol",
                           placeholder="e.g. Reliance, TCS, HDFC…",
@@ -770,18 +630,14 @@ def resolve_asset(asset_type: str, session_key: str, df_companies: pd.DataFrame)
                 st.caption("No results found.")
             else:
                 for _, row in results.iterrows():
-                    btn_key = f"{session_key}_btn_{row['symbol']}"
                     if st.button(f"{row['name']}  [{row['symbol']}]",
-                                 key=btn_key, use_container_width=True):
+                                 key=f"{session_key}_btn_{row['symbol']}", use_container_width=True):
                         st.session_state[name_key]   = row["name"]
                         st.session_state[ticker_key] = row["yf_ns"]
         if name_key in st.session_state:
             st.caption(f"✅ **{st.session_state[name_key]}** (`{st.session_state[ticker_key]}`)")
 
-    return (
-        st.session_state.get(name_key),
-        st.session_state.get(ticker_key),
-    )
+    return (st.session_state.get(name_key), st.session_state.get(ticker_key))
 
 
 # ── Load company list ─────────────────────────────────────────────────────────
@@ -789,15 +645,16 @@ all_companies = load_indian_companies()
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
+    # Logo + title
     col_logo, col_title = st.columns([1, 3])
     with col_logo:
         try:
-            import os as _os
-            st.image(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "icon_cropped.png"), width=64)
+            st.image(os.path.join(_BASE_DIR, "icon_cropped.png"), width=64)
         except Exception:
             st.markdown("📊")
     with col_title:
-        st.markdown("<div style='padding-top:10px;font-size:1.15rem;font-weight:700;color:#e0e6f0'>Market Hub</div>", unsafe_allow_html=True)
+        st.markdown("<div style='padding-top:12px;font-size:1.15rem;font-weight:700;color:#e0e6f0'>Market Hub</div>",
+                    unsafe_allow_html=True)
     st.markdown("---")
 
     asset_class = st.radio(
@@ -814,12 +671,10 @@ with st.sidebar:
             placeholder="e.g. Reliance, HDFC, Adani…",
             label_visibility="collapsed"
         )
-
         if "primary_name" not in st.session_state:
             st.session_state.primary_name   = "Nifty 50"
             st.session_state.primary_ticker = "^NSEI"
             st.session_state.primary_symbol = "NIFTY50"
-
         if query:
             results = search_companies(query, all_companies)
             if results.empty:
@@ -831,10 +686,9 @@ with st.sidebar:
                         st.session_state.primary_name   = row["name"]
                         st.session_state.primary_ticker = row["yf_ns"]
                         st.session_state.primary_symbol = row["symbol"]
-
         INDEX_TICKERS = {
-            "NIFTY50":  {"NSE (.NS)": "^NSEI",  "BSE (.BO)": "^BSESN"},
-            "SENSEX":   {"NSE (.NS)": "^BSESN",  "BSE (.BO)": "^BSESN"},
+            "NIFTY50": {"NSE (.NS)": "^NSEI",  "BSE (.BO)": "^BSESN"},
+            "SENSEX":  {"NSE (.NS)": "^BSESN", "BSE (.BO)": "^BSESN"},
         }
         exchange = st.radio("Exchange", ["NSE (.NS)", "BSE (.BO)"], horizontal=True)
         sym = st.session_state.primary_symbol
@@ -844,10 +698,8 @@ with st.sidebar:
             st.session_state.primary_ticker = sym + ".BO"
         else:
             st.session_state.primary_ticker = sym + ".NS"
-
         st.markdown(f"**Selected:** `{st.session_state.primary_name}`")
         st.markdown(f"**Ticker:** `{st.session_state.primary_ticker}`")
-
         primary_name   = st.session_state.primary_name
         primary_ticker = st.session_state.primary_ticker
 
@@ -860,91 +712,40 @@ with st.sidebar:
         primary_ticker = CRYPTO[primary_name]
 
     else:  # 💱 Forex
-        # ── Grouped regional forex pairs ──────────────────────────────────
         FOREX_GROUPS = {
             "⭐ Majors": {
-                "USD/INR":  "INR=X",
-                "EUR/USD":  "EURUSD=X",
-                "GBP/USD":  "GBPUSD=X",
-                "USD/JPY":  "JPY=X",
-                "USD/CHF":  "CHF=X",
-                "AUD/USD":  "AUDUSD=X",
-                "NZD/USD":  "NZDUSD=X",
-                "USD/CAD":  "CAD=X",
+                "USD/INR":"INR=X","EUR/USD":"EURUSD=X","GBP/USD":"GBPUSD=X",
+                "USD/JPY":"JPY=X","USD/CHF":"CHF=X","AUD/USD":"AUDUSD=X",
+                "NZD/USD":"NZDUSD=X","USD/CAD":"CAD=X",
             },
             "🌏 Asian": {
-                "USD/CNY":  "CNY=X",
-                "USD/HKD":  "HKD=X",
-                "USD/SGD":  "SGD=X",
-                "USD/KRW":  "KRW=X",
-                "USD/TWD":  "TWD=X",
-                "USD/MYR":  "MYR=X",
-                "USD/THB":  "THB=X",
-                "USD/PHP":  "PHP=X",
-                "USD/IDR":  "IDR=X",
-                "USD/BDT":  "BDT=X",
-                "USD/PKR":  "PKR=X",
-                "USD/LKR":  "LKR=X",
-                "USD/NPR":  "NPR=X",
-                "USD/VND":  "VND=X",
+                "USD/CNY":"CNY=X","USD/HKD":"HKD=X","USD/SGD":"SGD=X",
+                "USD/KRW":"KRW=X","USD/TWD":"TWD=X","USD/MYR":"MYR=X",
+                "USD/THB":"THB=X","USD/PHP":"PHP=X","USD/IDR":"IDR=X",
+                "USD/BDT":"BDT=X","USD/PKR":"PKR=X","USD/LKR":"LKR=X",
+                "USD/NPR":"NPR=X","USD/VND":"VND=X",
             },
             "🌍 Middle East & Africa": {
-                "USD/AED":  "AED=X",
-                "USD/SAR":  "SAR=X",
-                "USD/QAR":  "QAR=X",
-                "USD/KWD":  "KWD=X",
-                "USD/BHD":  "BHD=X",
-                "USD/OMR":  "OMR=X",
-                "USD/ILS":  "ILS=X",
-                "USD/TRY":  "TRY=X",
-                "USD/EGP":  "EGP=X",
-                "USD/ZAR":  "ZAR=X",
-                "USD/NGN":  "NGN=X",
-                "USD/KES":  "KES=X",
+                "USD/AED":"AED=X","USD/SAR":"SAR=X","USD/QAR":"QAR=X",
+                "USD/KWD":"KWD=X","USD/BHD":"BHD=X","USD/OMR":"OMR=X",
+                "USD/ILS":"ILS=X","USD/TRY":"TRY=X","USD/EGP":"EGP=X",
+                "USD/ZAR":"ZAR=X","USD/NGN":"NGN=X","USD/KES":"KES=X",
             },
             "🌍 European": {
-                "USD/SEK":  "SEK=X",
-                "USD/NOK":  "NOK=X",
-                "USD/DKK":  "DKK=X",
-                "USD/PLN":  "PLN=X",
-                "USD/CZK":  "CZK=X",
-                "USD/HUF":  "HUF=X",
-                "USD/RON":  "RON=X",
-                "USD/RUB":  "RUB=X",
-                "USD/UAH":  "UAH=X",
+                "USD/SEK":"SEK=X","USD/NOK":"NOK=X","USD/DKK":"DKK=X",
+                "USD/PLN":"PLN=X","USD/CZK":"CZK=X","USD/HUF":"HUF=X",
+                "USD/RON":"RON=X","USD/RUB":"RUB=X","USD/UAH":"UAH=X",
             },
             "🌎 Americas": {
-                "USD/BRL":  "BRL=X",
-                "USD/MXN":  "MXN=X",
-                "USD/ARS":  "ARS=X",
-                "USD/CLP":  "CLP=X",
-                "USD/COP":  "COP=X",
-                "USD/PEN":  "PEN=X",
+                "USD/BRL":"BRL=X","USD/MXN":"MXN=X","USD/ARS":"ARS=X",
+                "USD/CLP":"CLP=X","USD/COP":"COP=X","USD/PEN":"PEN=X",
             },
             "🔀 Cross Pairs": {
-                "EUR/INR":  "EURINR=X",
-                "GBP/INR":  "GBPINR=X",
-                "JPY/INR":  "JPYINR=X",
-                "EUR/GBP":  "EURGBP=X",
-                "EUR/JPY":  "EURJPY=X",
-                "GBP/JPY":  "GBPJPY=X",
-                "AUD/JPY":  "AUDJPY=X",
-                "EUR/CHF":  "EURCHF=X",
+                "EUR/INR":"EURINR=X","GBP/INR":"GBPINR=X","JPY/INR":"JPYINR=X",
+                "EUR/GBP":"EURGBP=X","EUR/JPY":"EURJPY=X","GBP/JPY":"GBPJPY=X",
+                "AUD/JPY":"AUDJPY=X","EUR/CHF":"EURCHF=X",
             },
         }
-
-        # ── Step 1: pick region ───────────────────────────────────────────
-        st.markdown("**1. Select Region**")
-        fx_region = st.selectbox("Region", list(FOREX_GROUPS.keys()),
-                                  key="fx_region", label_visibility="collapsed")
-
-        # ── Step 2: pick pair within region ──────────────────────────────
-        st.markdown("**2. Select Pair**")
-        region_pairs = FOREX_GROUPS[fx_region]
-        fx_pair = st.selectbox("Pair", list(region_pairs.keys()),
-                                key="fx_pair", label_visibility="collapsed")
-
-        # ── Show full currency name as caption ────────────────────────────
         CURRENCY_NAMES = {
             "USD":"US Dollar","EUR":"Euro","GBP":"British Pound","JPY":"Japanese Yen",
             "AUD":"Australian Dollar","NZD":"New Zealand Dollar","CAD":"Canadian Dollar",
@@ -961,48 +762,45 @@ with st.sidebar:
             "DKK":"Danish Krone","PLN":"Polish Zloty","CZK":"Czech Koruna",
             "HUF":"Hungarian Forint","RON":"Romanian Leu","RUB":"Russian Ruble",
             "UAH":"Ukrainian Hryvnia","BRL":"Brazilian Real","MXN":"Mexican Peso",
-            "ARS":"Argentine Peso","CLP":"Chilean Peso","COP":"Colombian Peso",
-            "PEN":"Peruvian Sol",
+            "ARS":"Argentine Peso","CLP":"Chilean Peso","COP":"Colombian Peso","PEN":"Peruvian Sol",
         }
+        st.markdown("**1. Select Region**")
+        fx_region = st.selectbox("Region", list(FOREX_GROUPS.keys()),
+                                  key="fx_region", label_visibility="collapsed")
+        st.markdown("**2. Select Pair**")
+        region_pairs = FOREX_GROUPS[fx_region]
+        fx_pair = st.selectbox("Pair", list(region_pairs.keys()),
+                                key="fx_pair", label_visibility="collapsed")
         parts = fx_pair.split("/")
         if len(parts) == 2:
             base_name  = CURRENCY_NAMES.get(parts[0], parts[0])
             quote_name = CURRENCY_NAMES.get(parts[1], parts[1])
             st.caption(f"📌 {base_name} → {quote_name}")
-
         primary_name   = fx_pair
         primary_ticker = region_pairs[fx_pair]
 
-        # ── Custom pair builder — wrapped in a form ───────────────────────
         st.markdown("**🔧 Or Build a Custom Pair**")
         BASE_CURRENCIES = [
-            "USD","EUR","GBP","JPY","AUD","NZD","CAD","CHF",
-            "INR","CNY","HKD","SGD","KRW","TWD","MYR","THB",
-            "PHP","IDR","BDT","PKR","LKR","NPR","VND","AED",
-            "SAR","QAR","KWD","BHD","OMR","ILS","TRY","EGP",
-            "ZAR","NGN","KES","SEK","NOK","DKK","PLN","CZK",
-            "HUF","RON","RUB","UAH","BRL","MXN","ARS","CLP",
-            "COP","PEN",
+            "USD","EUR","GBP","JPY","AUD","NZD","CAD","CHF","INR","CNY","HKD","SGD",
+            "KRW","TWD","MYR","THB","PHP","IDR","BDT","PKR","LKR","NPR","VND","AED",
+            "SAR","QAR","KWD","BHD","OMR","ILS","TRY","EGP","ZAR","NGN","KES","SEK",
+            "NOK","DKK","PLN","CZK","HUF","RON","RUB","UAH","BRL","MXN","ARS","CLP","COP","PEN",
         ]
         with st.form("fx_custom_form", border=False):
             col_a, col_b = st.columns(2)
             with col_a:
                 st.caption("Base")
-                fx_base = st.selectbox("Base", BASE_CURRENCIES,
-                                        key="fx_base", label_visibility="collapsed")
+                fx_base = st.selectbox("Base", BASE_CURRENCIES, key="fx_base", label_visibility="collapsed")
             with col_b:
                 st.caption("Quote")
-                default_quote_idx = BASE_CURRENCIES.index("INR") if "INR" in BASE_CURRENCIES else 8
-                fx_quote = st.selectbox("Quote", BASE_CURRENCIES,
-                                         key="fx_quote", label_visibility="collapsed",
-                                         index=default_quote_idx)
+                fx_quote = st.selectbox("Quote", BASE_CURRENCIES, key="fx_quote",
+                                         label_visibility="collapsed",
+                                         index=BASE_CURRENCIES.index("INR"))
             submitted = st.form_submit_button("Apply Custom Pair", use_container_width=True)
             if submitted and fx_base != fx_quote:
                 custom_ticker = f"{fx_quote}=X" if fx_base == "USD" else f"{fx_base}{fx_quote}=X"
                 st.session_state["fx_custom_name"]   = f"{fx_base}/{fx_quote}"
                 st.session_state["fx_custom_ticker"] = custom_ticker
-
-        # Apply custom pair if one has been submitted
         if "fx_custom_name" in st.session_state:
             use_custom = st.toggle("Use custom pair", value=False, key="fx_custom_toggle")
             if use_custom:
@@ -1018,28 +816,22 @@ with st.sidebar:
     st.markdown("**🔀 Cross Asset Comparison**")
     st.caption("Compare any two assets — stocks, crypto, commodities, forex, indices.")
     compare_on = st.toggle("Enable Comparison", value=False, key="ca_toggle")
-
     ca_name_a = ca_ticker_a = ca_name_b = ca_ticker_b = None
 
     if compare_on:
         ASSET_TYPES = ["📈 Index", "🏅 Commodity", "₿ Crypto", "💱 Forex", "🇮🇳 Stock"]
-
-        # ── Asset A ──────────────────────────────────────────────────────────
         st.markdown("**Asset A**")
         type_a = st.radio("Type A", ASSET_TYPES, key="ca_type_a",
                           horizontal=False, label_visibility="collapsed")
         ca_name_a, ca_ticker_a = resolve_asset(type_a, "ca_a", all_companies)
-
         st.markdown("---")
-
-        # ── Asset B ──────────────────────────────────────────────────────────
         st.markdown("**Asset B**")
         type_b = st.radio("Type B", ASSET_TYPES, key="ca_type_b",
                           horizontal=False, label_visibility="collapsed")
         ca_name_b, ca_ticker_b = resolve_asset(type_b, "ca_b", all_companies)
 
     st.markdown("---")
-    total = len(all_companies)
+    total  = len(all_companies)
     source = "GitHub CSV" if total > 500 else "Embedded list"
     st.caption(f"📋 {total:,} companies loaded ({source})")
     st.caption("News: Google News · ET · MoneyControl · LiveMint · Reuters")
@@ -1049,12 +841,13 @@ with st.sidebar:
 col_h1, col_h2 = st.columns([1, 14])
 with col_h1:
     try:
-        import os as _os
-        st.image(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "icon_cropped.png"), width=64)
+        st.image(os.path.join(_BASE_DIR, "icon_cropped.png"), width=56)
     except Exception:
         pass
 with col_h2:
-    st.markdown("<h1 style='margin-top:4px;color:#e0e6f0'>Indian Market Sentiment Hub</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='margin-top:4px;color:#e0e6f0'>Indian Market Sentiment Hub</h1>",
+                unsafe_allow_html=True)
+
 last_updated = datetime.now().strftime("%d %b %Y, %I:%M:%S %p")
 st.markdown(
     f"**{asset_class}** &nbsp;›&nbsp; **{primary_name}** "
@@ -1106,7 +899,6 @@ else:
     st.warning("Price data unavailable. Check the ticker or try BSE (.BO) instead of NSE (.NS).")
 
 # ── Cross Asset Comparison Chart ──────────────────────────────────────────────
-# Opt 2: parallel fetch — only fires when toggle ON and both assets resolved (Opt 5)
 if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
     with st.spinner(f"Loading {ca_name_a} vs {ca_name_b}…"):
         with ThreadPoolExecutor(max_workers=2) as executor:
@@ -1117,40 +909,27 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
 
     if not ca_df_a.empty and not ca_df_b.empty:
         st.markdown(f"### 🔀 {ca_name_a} vs {ca_name_b}")
-
         fig_ca = go.Figure()
-        for df, label, color in [
-            (ca_df_a, ca_name_a, "#5c7cfa"),
-            (ca_df_b, ca_name_b, "#00d4aa"),
-        ]:
+        for df, label, color in [(ca_df_a, ca_name_a, "#5c7cfa"), (ca_df_b, ca_name_b, "#00d4aa")]:
             norm = df["Close"].astype(float) / df["Close"].astype(float).iloc[0] * 100
             fig_ca.add_trace(go.Scatter(
                 x=df["Date"], y=norm, name=label,
                 line=dict(color=color, width=2.5, shape="spline", smoothing=0.6),
                 hovertemplate="%{y:.1f}<extra>" + label + "</extra>"
             ))
-
         fig_ca.update_layout(
-            template="plotly_dark",
-            paper_bgcolor="#0e1320", plot_bgcolor="#0e1320",
+            template="plotly_dark", paper_bgcolor="#0e1320", plot_bgcolor="#0e1320",
             margin=dict(l=10, r=10, t=55, b=10), height=400,
-            title=dict(
-                text=f"<b>{ca_name_a}  vs  {ca_name_b}</b> — Normalised to 100",
-                font=dict(size=14, color="#c0cce0"),
-                x=0.01, xanchor="left", y=0.97
-            ),
+            title=dict(text=f"<b>{ca_name_a}  vs  {ca_name_b}</b> — Normalised to 100",
+                       font=dict(size=14, color="#c0cce0"), x=0.01, xanchor="left", y=0.97),
             yaxis=dict(gridcolor="#1a2035", zeroline=False, color="#4a5568", side="right"),
             xaxis=dict(showgrid=False, color="#4a5568"),
-            legend=dict(
-                orientation="h", y=1.06, x=0.5, xanchor="center",
-                font=dict(size=12, color="#c0cce0"),
-                bgcolor="rgba(0,0,0,0)"
-            ),
+            legend=dict(orientation="h", y=1.06, x=0.5, xanchor="center",
+                        font=dict(size=12, color="#c0cce0"), bgcolor="rgba(0,0,0,0)"),
             hovermode="x unified",
         )
         st.plotly_chart(fig_ca, use_container_width=True)
 
-        # ── Correlation badge ─────────────────────────────────────────────
         try:
             merged = pd.merge(
                 ca_df_a[["Date","Close"]].rename(columns={"Close":"A"}),
@@ -1177,7 +956,6 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
         except Exception:
             pass
 
-        # ── Side-by-side KPI mini cards ───────────────────────────────────
         kpi_cols = st.columns(2)
         for col, df, label, color in [
             (kpi_cols[0], ca_df_a, ca_name_a, "#5c7cfa"),
@@ -1194,8 +972,7 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
                         f"<div class='kpi-value' style='color:{color}'>{label}</div>"
                         f"<div class='kpi-value' style='color:{ret_col};font-size:1.4rem'>{ret_pct:+.2f}%</div>"
                         f"<div class='kpi-label'>Return over period</div>"
-                        f"</div>",
-                        unsafe_allow_html=True
+                        f"</div>", unsafe_allow_html=True
                     )
     elif compare_on and (ca_name_a or ca_name_b):
         st.info("⬅️ Select both Asset A and Asset B in the sidebar to display the comparison.")
@@ -1203,48 +980,41 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
 # ── Sentiment Analysis ────────────────────────────────────────────────────────
 st.markdown("### 🧠 Sentiment Analysis")
 if not news_df.empty:
-    col_left, col_right = st.columns(2)
+    # Render donut and trend as separate full-width charts stacked vertically
+    # to avoid overlap issues on different screen sizes
+    counts = news_df["label"].value_counts().to_dict()
+    fig_donut = go.Figure(go.Pie(
+        labels=["Positive","Negative","Neutral"],
+        values=[counts.get("Positive",0), counts.get("Negative",0), counts.get("Neutral",0)],
+        marker=dict(colors=["#00d4aa","#ff4b6e","#ffd166"],
+                    line=dict(color="#0e1320", width=2)),
+        hole=0.65,
+        textinfo="label+percent",
+        textfont=dict(size=13, color="#c0cce0"),
+        insidetextorientation="radial",
+        hovertemplate="%{label}: %{value} articles<extra></extra>",
+    ))
+    fig_donut.update_layout(
+        template="plotly_dark", paper_bgcolor="#0e1320",
+        margin=dict(l=10, r=10, t=20, b=10), height=320,
+        showlegend=True,
+        legend=dict(orientation="h", x=0.5, xanchor="center", y=-0.05,
+                    font=dict(size=12, color="#8892a4"), bgcolor="rgba(0,0,0,0)"),
+    )
 
-    with col_left:
-        counts = news_df["label"].value_counts().to_dict()
-        fig_donut = go.Figure(go.Pie(
-            labels=["Positive","Negative","Neutral"],
-            values=[counts.get("Positive",0), counts.get("Negative",0), counts.get("Neutral",0)],
-            marker=dict(
-                colors=["#00d4aa","#ff4b6e","#ffd166"],
-                line=dict(color="#0e1320", width=2)
-            ),
-            hole=0.65,
-            textinfo="label+percent",
-            textfont=dict(size=12, color="#c0cce0"),
-            insidetextorientation="radial",
-            hovertemplate="%{label}: %{value} articles<extra></extra>",
-        ))
-        fig_donut.update_layout(
-            template="plotly_dark",
-            paper_bgcolor="#0e1320",
-            margin=dict(l=10, r=10, t=10, b=10),
-            height=270,
-            showlegend=True,
-            legend=dict(
-                orientation="h", x=0.5, xanchor="center", y=-0.05,
-                font=dict(size=11, color="#8892a4"),
-                bgcolor="rgba(0,0,0,0)"
-            ),
-        )
+    tab1, tab2 = st.tabs(["🍩 Sentiment Breakdown", "📅 Daily Trend"])
+    with tab1:
         st.plotly_chart(fig_donut, use_container_width=True)
-
-    with col_right:
+    with tab2:
         st.plotly_chart(build_sentiment_trend(news_df), use_container_width=True)
 
 # ── News Feed ─────────────────────────────────────────────────────────────────
 news_keyword = get_news_keyword(primary_name)
-st.markdown(f"### 🗞️ Latest News &nbsp;<span style='font-size:0.8rem;color:#5c7cfa'>searching: '{news_keyword}'</span>", unsafe_allow_html=True)
+st.markdown(f"### 🗞️ Latest News &nbsp;<span style='font-size:0.8rem;color:#5c7cfa'>searching: '{news_keyword}'</span>",
+            unsafe_allow_html=True)
 if not news_df.empty:
-    filt_col, _ = st.columns([2, 6])
-    with filt_col:
-        filt = st.radio("", ["All","Positive","Negative","Neutral"],
-                        horizontal=True, label_visibility="collapsed")
+    filt = st.radio("Filter", ["All","Positive","Negative","Neutral"],
+                    horizontal=True, label_visibility="collapsed")
     filtered = news_df if filt == "All" else news_df[news_df["label"] == filt]
     for _, row in filtered.iterrows():
         bc = badge_class(row["label"])
