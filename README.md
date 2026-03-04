@@ -9,7 +9,7 @@ A professional Streamlit dashboard covering **all NSE/BSE listed companies, MCX 
 | Feature | Detail |
 |---|---|
 | **Stock Search** | Search any of 2000+ NSE/BSE listed companies by name or symbol |
-| **Asset Classes** | NSE/BSE Stocks, MCX Commodities (Gold, Silver, Crude etc.), Top 10 Crypto |
+| **Asset Classes** | NSE/BSE Stocks, MCX Commodities (Gold, Silver, Crude etc.), Top 10 Crypto, Forex rates |
 | **Exchange Toggle** | Switch any stock between NSE (.NS) and BSE (.BO) with one click |
 | **Price Charts** | Candlestick + MA20 + MA50 + Bollinger Bands + MACD |
 | **Sentiment Engine** | VADER |
@@ -39,8 +39,8 @@ Rule-based model. Uses a pre-built dictionary of words with sentiment weights. F
 
 | Score | Label |
 |---|---|
-| >= +0.05 | Positive |
-| <= -0.05 | Negative |
+| >= +0.07 | Positive |
+| <= -0.07 | Negative |
 | Between  | Neutral  |
 
 ---
