@@ -340,7 +340,7 @@ def get_news_keyword(company_name: str) -> str:
 
 
 # ── FinBERT via HuggingFace Inference API ────────────────────────────────────
-HF_API_URL = "https://api-inference.huggingface.co/models/ProsusAI/finbert"
+HF_API_URL = "https://router.huggingface.co/hf-inference/models/ProsusAI/finbert"
 HF_API_KEY = st.secrets.get("HF_API_KEY", "")
 
 def finbert_scores(texts: list[str]) -> tuple[list[dict], str]:
@@ -360,6 +360,8 @@ def finbert_scores(texts: list[str]) -> tuple[list[dict], str]:
                 json={"inputs": batch, "options": {"wait_for_model": True}},
                 timeout=45
             )
+            if resp.status_code == 410:
+                return [], "API endpoint moved (410) — URL updated"
             if resp.status_code == 503:
                 return [], "Model loading (503) — will retry next refresh"
             if resp.status_code == 401:
