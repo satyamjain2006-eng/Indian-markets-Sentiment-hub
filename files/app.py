@@ -439,30 +439,41 @@ def fetch_news(company_name: str) -> pd.DataFrame:
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_price(ticker: str, period: str) -> pd.DataFrame:
+    def _clean(df: pd.DataFrame, is_intraday: bool) -> pd.DataFrame:
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        df = df.reset_index()
+        if "Datetime" in df.columns:
+            df = df.rename(columns={"Datetime": "Date"})
+        if is_intraday and "Date" in df.columns and not df.empty:
+            if hasattr(df["Date"].dtype, "tz") and df["Date"].dt.tz is not None:
+                df["Date"] = df["Date"].dt.tz_convert("Asia/Kolkata").dt.tz_localize(None)
+            else:
+                df["Date"] = pd.to_datetime(df["Date"]) + pd.Timedelta(hours=5, minutes=30)
+        df = df.drop_duplicates(subset=["Date"]).sort_values("Date").reset_index(drop=True)
+        return df
+
     try:
         if period == "1d":
             data = yf.download(ticker, period="1d", interval="5m", progress=False, auto_adjust=True)
+            data = _clean(data, is_intraday=True)
+            # ── Market closed fallback: show last 5 trading days daily data ──
+            if data.empty or len(data) < 2:
+                data = yf.download(ticker, period="5d", interval="1d", progress=False, auto_adjust=True)
+                data = _clean(data, is_intraday=False)
+                if not data.empty:
+                    data.attrs["market_closed"] = True
+            return data
         elif period == "5d":
             data = yf.download(ticker, period="5d", interval="15m", progress=False, auto_adjust=True)
+            data = _clean(data, is_intraday=True)
+            if data.empty:
+                data = yf.download(ticker, period="5d", interval="1d", progress=False, auto_adjust=True)
+                data = _clean(data, is_intraday=False)
+            return data
         else:
             data = yf.download(ticker, period=period, progress=False, auto_adjust=True)
-        if isinstance(data.columns, pd.MultiIndex):
-            data.columns = data.columns.get_level_values(0)
-        data = data.reset_index()
-        # Rename Datetime -> Date for intraday data
-        if "Datetime" in data.columns:
-            data = data.rename(columns={"Datetime": "Date"})
-        # ── Convert UTC -> IST (UTC+5:30) for intraday periods ───────────────
-        if period in ("1d", "5d") and "Date" in data.columns:
-            if hasattr(data["Date"].dtype, "tz") and data["Date"].dt.tz is not None:
-                # Already tz-aware — convert to IST
-                data["Date"] = data["Date"].dt.tz_convert("Asia/Kolkata").dt.tz_localize(None)
-            else:
-                # Naive timestamps from yfinance — assume UTC, shift to IST
-                data["Date"] = pd.to_datetime(data["Date"]) + pd.Timedelta(hours=5, minutes=30)
-        # Deduplicate and sort — prevents narwhals DuplicateError downstream
-        data = data.drop_duplicates(subset=["Date"]).sort_values("Date").reset_index(drop=True)
-        return data
+            return _clean(data, is_intraday=False)
     except Exception:
         return pd.DataFrame()
 
@@ -960,6 +971,8 @@ st.markdown("<br>", unsafe_allow_html=True)
 # ── Price Chart ───────────────────────────────────────────────────────────────
 st.markdown("### 📈 Price Chart + Indicators")
 if not price_df.empty:
+    if price_df.attrs.get("market_closed"):
+        st.info("🔔 Market is currently closed. Showing last 5 trading days of daily data.")
     st.plotly_chart(build_price_chart(price_df, primary_ticker), use_container_width=True)
 else:
     st.warning("Price data unavailable. Check the ticker or try BSE (.BO) instead of NSE (.NS).")
