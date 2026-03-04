@@ -460,6 +460,8 @@ def fetch_price(ticker: str, period: str) -> pd.DataFrame:
             else:
                 # Naive timestamps from yfinance — assume UTC, shift to IST
                 data["Date"] = pd.to_datetime(data["Date"]) + pd.Timedelta(hours=5, minutes=30)
+        # Deduplicate and sort — prevents narwhals DuplicateError downstream
+        data = data.drop_duplicates(subset=["Date"]).sort_values("Date").reset_index(drop=True)
         return data
     except Exception:
         return pd.DataFrame()
@@ -975,7 +977,10 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
         st.markdown(f"### 🔀 {ca_name_a} vs {ca_name_b}")
         fig_ca = go.Figure()
         for df, label, color in [(ca_df_a, ca_name_a, "#5c7cfa"), (ca_df_b, ca_name_b, "#00d4aa")]:
-            norm = df["Close"].astype(float) / df["Close"].astype(float).iloc[0] * 100
+            # ── Deduplicate and sort by date to prevent narwhals DuplicateError ──
+            df = df.drop_duplicates(subset=["Date"]).sort_values("Date").reset_index(drop=True)
+            close = df["Close"].astype(float)
+            norm  = close / close.iloc[0] * 100
             fig_ca.add_trace(go.Scatter(
                 x=df["Date"], y=norm, name=label,
                 line=dict(color=color, width=2.5, shape="spline", smoothing=0.6),
