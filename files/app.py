@@ -438,7 +438,7 @@ def fetch_news(company_name: str) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def fetch_price(ticker: str, period: str) -> pd.DataFrame:
+def fetch_price(ticker: str, period: str) -> tuple:
     def _clean(df: pd.DataFrame, is_intraday: bool) -> pd.DataFrame:
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
@@ -457,25 +457,23 @@ def fetch_price(ticker: str, period: str) -> pd.DataFrame:
         if period == "1d":
             data = yf.download(ticker, period="1d", interval="5m", progress=False, auto_adjust=True)
             data = _clean(data, is_intraday=True)
-            # ── Market closed fallback: show last 5 trading days daily data ──
             if data.empty or len(data) < 2:
                 data = yf.download(ticker, period="5d", interval="1d", progress=False, auto_adjust=True)
                 data = _clean(data, is_intraday=False)
-                if not data.empty:
-                    data.attrs["market_closed"] = True
-            return data
+                return data, True   # (dataframe, market_closed=True)
+            return data, False
         elif period == "5d":
             data = yf.download(ticker, period="5d", interval="15m", progress=False, auto_adjust=True)
             data = _clean(data, is_intraday=True)
             if data.empty:
                 data = yf.download(ticker, period="5d", interval="1d", progress=False, auto_adjust=True)
                 data = _clean(data, is_intraday=False)
-            return data
+            return data, False
         else:
             data = yf.download(ticker, period=period, progress=False, auto_adjust=True)
-            return _clean(data, is_intraday=False)
+            return _clean(data, is_intraday=False), False
     except Exception:
-        return pd.DataFrame()
+        return pd.DataFrame(), False
 
 
 def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
@@ -937,7 +935,7 @@ with st.spinner(f"Loading {primary_name}…"):
     with ThreadPoolExecutor(max_workers=2) as executor:
         fut_price = executor.submit(fetch_price, primary_ticker, period)
         fut_news  = executor.submit(fetch_news, primary_name)
-        price_df  = fut_price.result()
+        price_df, market_closed = fut_price.result()
         news_df   = fut_news.result()
 
 # ── KPI Row ───────────────────────────────────────────────────────────────────
@@ -971,8 +969,8 @@ st.markdown("<br>", unsafe_allow_html=True)
 # ── Price Chart ───────────────────────────────────────────────────────────────
 st.markdown("### 📈 Price Chart + Indicators")
 if not price_df.empty:
-    if price_df.attrs.get("market_closed"):
-        st.info("🔔 Market is currently closed. Showing last 5 trading days of daily data.")
+    if market_closed:
+        st.info("🔔 Market is currently closed — showing last 5 trading days of daily data.")
     st.plotly_chart(build_price_chart(price_df, primary_ticker), use_container_width=True)
 else:
     st.warning("Price data unavailable. Check the ticker or try BSE (.BO) instead of NSE (.NS).")
@@ -983,8 +981,8 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
         with ThreadPoolExecutor(max_workers=2) as executor:
             fut_a = executor.submit(fetch_price, ca_ticker_a, period)
             fut_b = executor.submit(fetch_price, ca_ticker_b, period)
-            ca_df_a = fut_a.result()
-            ca_df_b = fut_b.result()
+            ca_df_a, _ = fut_a.result()
+            ca_df_b, _ = fut_b.result()
 
     if not ca_df_a.empty and not ca_df_b.empty:
         st.markdown(f"### 🔀 {ca_name_a} vs {ca_name_b}")
