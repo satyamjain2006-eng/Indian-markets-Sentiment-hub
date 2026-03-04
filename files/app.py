@@ -59,7 +59,6 @@ st.markdown("""
     h1,h2,h3,h4 { color:#e0e6f0 !important; }
     .stTabs [data-baseweb="tab"] { color:#6b7a99; }
     .stTabs [aria-selected="true"] { color:#5c7cfa !important; }
-    /* Fix sentiment section charts overlapping */
     [data-testid="stHorizontalBlock"] > div { min-width: 0; }
 </style>
 """, unsafe_allow_html=True)
@@ -73,7 +72,6 @@ CRYPTO = {
     "Solana":"SOL-USD","XRP":"XRP-USD","Cardano":"ADA-USD",
     "Dogecoin":"DOGE-USD","Avalanche":"AVAX-USD","Polkadot":"DOT-USD","Chainlink":"LINK-USD"
 }
-
 INDICES = [
     ("NIFTY50",  "Nifty 50",          "^NSEI",      "^NSEI"),
     ("SENSEX",   "Sensex",            "^BSESN",     "^BSESN"),
@@ -339,12 +337,10 @@ def get_news_keyword(company_name: str) -> str:
     return words[0] if words else company_name
 
 
-# ── FinBERT via HuggingFace Inference API ────────────────────────────────────
+# ── Sentiment scorers ─────────────────────────────────────────────────────────
 HF_API_KEY = st.secrets.get("HF_API_KEY", "")
 
-def finbert_scores(texts: list[str]) -> tuple[list[dict], str]:
-    """Score texts via HuggingFace FinBERT API with a hard 8s timeout.
-    Returns (results, error_msg)."""
+def finbert_scores(texts: list) -> tuple:
     if not HF_API_KEY:
         return [], "No API key set"
     try:
@@ -382,17 +378,35 @@ def finbert_scores(texts: list[str]) -> tuple[list[dict], str]:
                     all_parsed.append(None)
         return all_parsed, ""
     except requests.exceptions.Timeout:
-        return [], "Timeout (8s) — model may be cold, retrying next refresh"
+        return [], "Timeout — model may be cold, retrying next refresh"
     except Exception as e:
         return [], str(e)
 
 
-# Fallback VADER for when HF API is unavailable
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer as _VADER
 _vader = _VADER()
 
 def vader_score(text: str) -> float:
     return _vader.polarity_scores(text)["compound"]
+
+# ── TextBlob scorer ───────────────────────────────────────────────────────────
+try:
+    from textblob import TextBlob
+    _textblob_available = True
+except ImportError:
+    _textblob_available = False
+
+def textblob_score(text: str) -> float:
+    """Returns polarity in [-1, +1], same scale as VADER compound."""
+    if not _textblob_available:
+        return 0.0
+    return TextBlob(text).sentiment.polarity
+
+def combined_score(text: str) -> float:
+    """Average of VADER and TextBlob — reduces noise from either model alone."""
+    v = vader_score(text)
+    t = textblob_score(text)
+    return round((v + t) / 2, 4)
 
 def label_from_score(score: float) -> str:
     if score >= 0.07:  return "Positive"
@@ -417,18 +431,13 @@ def fetch_news(company_name: str) -> pd.DataFrame:
         if len(word) >= 4:
             search_terms.add(word.lower())
 
-    # ── Extra terms for Indian indices ───────────────────────────────────────
     INDEX_NAMES = {"nifty", "sensex", "nse", "bse", "dalal street",
                    "indian market", "indian stock", "indian equit", "gift nifty",
                    "d-street", "market today", "market open", "market close"}
     is_index = any(t in search_terms for t in {"nifty", "sensex", "nsebank", "nsemdcp50"})
-
-    # Pure foreign company stories with no macro relevance
     FOREIGN_COMPANY_NOISE = {"amazon", "apple ", "google", "microsoft", "tesla",
                               "nvidia", "meta ", "netflix", "moderna", "pfizer",
                               "spacex", "openai"}
-
-    # Macro/geopolitical terms that DO affect Indian markets — always keep these
     MACRO_RELEVANT = {"oil", "crude", "gold", "fed ", "federal reserve", "rate cut",
                       "rate hike", "inflation", "recession", "war", "iran", "russia",
                       "ukraine", "israel", "china", "us-india", "rupee", "dollar",
@@ -506,23 +515,32 @@ def fetch_news(company_name: str) -> pd.DataFrame:
     df["published_dt"] = pd.to_datetime(df["published"], errors="coerce")
     df = df.sort_values("published_dt", ascending=False).reset_index(drop=True)
 
-    # ── Sentiment scoring: FinBERT preferred, VADER fallback ─────────────────
+    # ── Sentiment scoring ─────────────────────────────────────────────────────
     titles = df["title"].tolist()
+
+    # Always compute VADER and TextBlob (free, no API needed)
+    df["vader_score"]    = df["title"].apply(vader_score)
+    df["textblob_score"] = df["title"].apply(textblob_score)
+    df["combined_score"] = df["title"].apply(combined_score)
+
+    # Try FinBERT on top
     finbert_results, finbert_error = finbert_scores(titles)
 
     if finbert_results and len(finbert_results) == len(titles):
-        df["compound"] = [r["compound"] if r else vader_score(t)
-                          for r, t in zip(finbert_results, titles)]
-        df["label"]    = [r["label"] if r else label_from_score(vader_score(t))
-                          for r, t in zip(finbert_results, titles)]
-        df["scorer"]   = "FinBERT"
+        df["finbert_score"] = [r["compound"] if r else df["combined_score"].iloc[i]
+                               for i, r in enumerate(finbert_results)]
+        # Final compound = average of all three
+        df["compound"] = df[["vader_score","textblob_score","finbert_score"]].mean(axis=1).round(4)
+        df["scorer"]      = "FinBERT + VADER + TextBlob"
         df["scorer_note"] = ""
     else:
-        df["compound"] = df["title"].apply(vader_score)
-        df["label"]    = df["compound"].apply(label_from_score)
-        df["scorer"]   = "VADER"
+        df["finbert_score"] = None
+        # Final compound = average of VADER + TextBlob
+        df["compound"]    = df["combined_score"]
+        df["scorer"]      = "VADER + TextBlob"
         df["scorer_note"] = finbert_error
 
+    df["label"] = df["compound"].apply(label_from_score)
     df["published_fmt"] = df["published_dt"].dt.strftime("%-d %B %Y, %I:%M %p").fillna(df["published"])
     return df
 
@@ -550,7 +568,7 @@ def fetch_price(ticker: str, period: str) -> tuple:
             if data.empty or len(data) < 2:
                 data = yf.download(ticker, period="5d", interval="1d", progress=False, auto_adjust=True)
                 data = _clean(data, is_intraday=False)
-                return data, True   # (dataframe, market_closed=True)
+                return data, True
             return data, False
         elif period == "5d":
             data = yf.download(ticker, period="5d", interval="15m", progress=False, auto_adjust=True)
@@ -651,95 +669,127 @@ def build_sentiment_trend(df: pd.DataFrame) -> go.Figure:
             text += f"<br><i>+{remaining} more…</i>"
         return text
 
+    # Group by date — aggregate all score columns
+    agg_dict = {
+        "compound":      ("compound",      "mean"),
+        "vader_score":   ("vader_score",   "mean"),
+        "textblob_score":("textblob_score","mean"),
+        "article_count": ("compound",      "count"),
+        "titles":        ("title",         top5_titles),
+    }
+    # Only include finbert if column exists and has data
+    has_finbert = "finbert_score" in df.columns and df["finbert_score"].notna().any()
+    if has_finbert:
+        agg_dict["finbert_score"] = ("finbert_score", "mean")
+
     daily = (
         df.groupby("date")
-        .agg(
-            avg_score=("compound", "mean"),
-            article_count=("compound", "count"),
-            titles=("title", top5_titles)
-        )
+        .agg(**agg_dict)
         .reset_index()
         .sort_values("date")
     )
-    daily["label"] = daily["avg_score"].apply(label_from_score)
+    daily["label"] = daily["compound"].apply(label_from_score)
     daily["color"] = daily["label"].apply(sentiment_color)
-
-    # Bubble size: scale article count to reasonable px range (min 18, max 60)
     max_count = daily["article_count"].max() if daily["article_count"].max() > 0 else 1
     daily["bubble_size"] = 18 + (daily["article_count"] / max_count) * 42
 
     fig = go.Figure()
 
-    # ── Zero line band ────────────────────────────────────────────────────────
     fig.add_hrect(y0=-0.07, y1=0.07, fillcolor="rgba(255,255,255,0.02)",
                   line_width=0, layer="below")
     fig.add_hline(y=0,     line_dash="dot", line_color="#2a3560",              line_width=1)
     fig.add_hline(y=0.07,  line_dash="dot", line_color="rgba(0,212,170,0.3)",  line_width=1)
     fig.add_hline(y=-0.07, line_dash="dot", line_color="rgba(255,75,110,0.3)", line_width=1)
 
-    # ── Connector line between bubbles ────────────────────────────────────────
+    # ── Individual model lines ────────────────────────────────────────────────
     fig.add_trace(go.Scatter(
-        x=daily["date"], y=daily["avg_score"],
-        mode="lines",
-        line=dict(color="rgba(92,124,250,0.3)", width=1.5, dash="dot"),
-        hoverinfo="skip", showlegend=False,
+        x=daily["date"], y=daily["vader_score"],
+        mode="lines", name="VADER",
+        line=dict(color="rgba(255,209,102,0.5)", width=1.5, dash="dot"),
+        hovertemplate="VADER: %{y:.3f}<extra></extra>",
+    ))
+    fig.add_trace(go.Scatter(
+        x=daily["date"], y=daily["textblob_score"],
+        mode="lines", name="TextBlob",
+        line=dict(color="rgba(255,100,180,0.5)", width=1.5, dash="dot"),
+        hovertemplate="TextBlob: %{y:.3f}<extra></extra>",
+    ))
+    if has_finbert:
+        fig.add_trace(go.Scatter(
+            x=daily["date"], y=daily["finbert_score"],
+            mode="lines", name="FinBERT",
+            line=dict(color="rgba(100,200,255,0.5)", width=1.5, dash="dot"),
+            hovertemplate="FinBERT: %{y:.3f}<extra></extra>",
+        ))
+
+    # ── Connector line ────────────────────────────────────────────────────────
+    fig.add_trace(go.Scatter(
+        x=daily["date"], y=daily["compound"],
+        mode="lines", name="Combined",
+        line=dict(color="rgba(92,124,250,0.6)", width=2),
+        hoverinfo="skip", showlegend=True,
     ))
 
-    # ── Bubbles — one per day ─────────────────────────────────────────────────
+    # ── Bubbles coloured by combined sentiment ────────────────────────────────
     for label, color in [("Positive","#00d4aa"),("Negative","#ff4b6e"),("Neutral","#ffd166")]:
         mask = daily["label"] == label
         sub  = daily[mask]
         if sub.empty:
             continue
-        fig.add_trace(go.Scatter(
-            x=sub["date"],
-            y=sub["avg_score"],
-            mode="markers",
-            name=label,
-            marker=dict(
-                size=sub["bubble_size"],
-                color=color,
-                opacity=0.85,
-                line=dict(color="rgba(255,255,255,0.15)", width=1),
-                sizemode="diameter",
-            ),
-            customdata=np.stack([sub["titles"], sub["article_count"], sub["avg_score"]], axis=1),
-            hovertemplate=(
+        # Build customdata with or without finbert
+        if has_finbert:
+            cdata = np.stack([sub["titles"], sub["article_count"],
+                              sub["compound"], sub["vader_score"],
+                              sub["textblob_score"], sub["finbert_score"]], axis=1)
+            hover = (
                 "<b>%{x|%d %B %Y}</b><br>"
-                "Sentiment: <b>%{customdata[2]:.3f}</b> — " + label + "<br>"
+                "Combined: <b>%{customdata[2]:.3f}</b><br>"
+                "VADER: %{customdata[3]:.3f} &nbsp;|&nbsp; "
+                "TextBlob: %{customdata[4]:.3f} &nbsp;|&nbsp; "
+                "FinBERT: %{customdata[5]:.3f}<br>"
                 "Articles: <b>%{customdata[1]}</b><br>"
                 "%{customdata[0]}<extra></extra>"
-            ),
+            )
+        else:
+            cdata = np.stack([sub["titles"], sub["article_count"],
+                              sub["compound"], sub["vader_score"],
+                              sub["textblob_score"]], axis=1)
+            hover = (
+                "<b>%{x|%d %B %Y}</b><br>"
+                "Combined: <b>%{customdata[2]:.3f}</b><br>"
+                "VADER: %{customdata[3]:.3f} &nbsp;|&nbsp; "
+                "TextBlob: %{customdata[4]:.3f}<br>"
+                "Articles: <b>%{customdata[1]}</b><br>"
+                "%{customdata[0]}<extra></extra>"
+            )
+        fig.add_trace(go.Scatter(
+            x=sub["date"], y=sub["compound"],
+            mode="markers", name=label,
+            marker=dict(size=sub["bubble_size"], color=color, opacity=0.85,
+                        line=dict(color="rgba(255,255,255,0.15)", width=1),
+                        sizemode="diameter"),
+            customdata=cdata,
+            hovertemplate=hover,
         ))
 
     fig.update_layout(
         template="plotly_dark", paper_bgcolor="#0e1320", plot_bgcolor="#0e1320",
-        margin=dict(l=10, r=10, t=44, b=50), height=360,
+        margin=dict(l=10, r=10, t=44, b=50), height=380,
         title=dict(
-            text="<b>Sentiment Bubbles</b>  <span style='font-size:11px;color:#6b7a99'>· size = article volume</span>",
+            text="<b>Daily Sentiment</b>  <span style='font-size:11px;color:#6b7a99'>· bubble size = article volume · lines = individual models</span>",
             font=dict(size=13, color="#c0cce0"), x=0.01, xanchor="left"
         ),
-        xaxis=dict(
-            showgrid=False, color="#4a5568",
-            tickformat="%d %b",
-            tickangle=-35,
-            nticks=10, tickmode="auto",
-        ),
-        yaxis=dict(
-            gridcolor="#1a2035", range=[-1.15, 1.15],
-            color="#4a5568", zeroline=False, side="right",
-            tickvals=[-1, -0.5, 0, 0.5, 1],
-            ticktext=["−1", "−0.5", "0", "+0.5", "+1"],
-        ),
-        legend=dict(
-            orientation="h", y=1.1, x=0.5, xanchor="center",
-            font=dict(size=10, color="#8892a4"), bgcolor="rgba(0,0,0,0)",
-        ),
+        xaxis=dict(showgrid=False, color="#4a5568", tickformat="%d %b",
+                   tickangle=-35, nticks=10, tickmode="auto"),
+        yaxis=dict(gridcolor="#1a2035", range=[-1.15, 1.15], color="#4a5568",
+                   zeroline=False, side="right",
+                   tickvals=[-1, -0.5, 0, 0.5, 1],
+                   ticktext=["−1", "−0.5", "0", "+0.5", "+1"]),
+        legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center",
+                    font=dict(size=10, color="#8892a4"), bgcolor="rgba(0,0,0,0)"),
         hovermode="closest",
-        hoverlabel=dict(
-            bgcolor="#1a2035", bordercolor="#2a3560",
-            font=dict(size=12, color="#e0e6f0"), namelength=0,
-        ),
+        hoverlabel=dict(bgcolor="#1a2035", bordercolor="#2a3560",
+                        font=dict(size=12, color="#e0e6f0"), namelength=0),
     )
     return fig
 
@@ -747,12 +797,9 @@ def build_sentiment_trend(df: pd.DataFrame) -> go.Figure:
 def resolve_asset(asset_type: str, session_key: str, df_companies: pd.DataFrame):
     name_key   = f"{session_key}_name"
     ticker_key = f"{session_key}_ticker"
-
     CA_ASSETS_INDEX = {
-        "Nifty 50":       "^NSEI",
-        "Sensex":         "^BSESN",
-        "Nifty Bank":     "^NSEBANK",
-        "Nifty Midcap 50":"^NSEMDCP50",
+        "Nifty 50":"^NSEI","Sensex":"^BSESN",
+        "Nifty Bank":"^NSEBANK","Nifty Midcap 50":"^NSEMDCP50",
     }
     POPULAR_FOREX_SHORT = {
         "USD/INR":"INR=X","EUR/USD":"EURUSD=X","GBP/USD":"GBPUSD=X",
@@ -763,7 +810,6 @@ def resolve_asset(asset_type: str, session_key: str, df_companies: pd.DataFrame)
         "USD/ZAR":"ZAR=X","USD/BRL":"BRL=X","USD/MXN":"MXN=X",
         "USD/SAR":"SAR=X","USD/HKD":"HKD=X",
     }
-
     if asset_type == "📈 Index":
         pick = st.selectbox("Select Index", list(CA_ASSETS_INDEX.keys()),
                             key=f"{session_key}_idx_pick", label_visibility="collapsed")
@@ -800,7 +846,6 @@ def resolve_asset(asset_type: str, session_key: str, df_companies: pd.DataFrame)
                         st.session_state[ticker_key] = row["yf_ns"]
         if name_key in st.session_state:
             st.caption(f"✅ **{st.session_state[name_key]}** (`{st.session_state[ticker_key]}`)")
-
     return (st.session_state.get(name_key), st.session_state.get(ticker_key))
 
 
@@ -809,7 +854,6 @@ all_companies = load_indian_companies()
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    # Logo + title
     col_logo, col_title = st.columns([1, 3])
     with col_logo:
         try:
@@ -1021,7 +1065,7 @@ st.markdown(
 )
 st.markdown("---")
 
-# ── Fetch data — price and news in parallel ───────────────────────────────────
+# ── Fetch data ────────────────────────────────────────────────────────────────
 with st.spinner(f"Loading {primary_name}…"):
     with ThreadPoolExecutor(max_workers=2) as executor:
         fut_price = executor.submit(fetch_price, primary_ticker, period)
@@ -1079,7 +1123,6 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
         st.markdown(f"### 🔀 {ca_name_a} vs {ca_name_b}")
         fig_ca = go.Figure()
         for df, label, color in [(ca_df_a, ca_name_a, "#5c7cfa"), (ca_df_b, ca_name_b, "#00d4aa")]:
-            # ── Deduplicate and sort by date to prevent narwhals DuplicateError ──
             df = df.drop_duplicates(subset=["Date"]).sort_values("Date").reset_index(drop=True)
             close = df["Close"].astype(float)
             norm  = close / close.iloc[0] * 100
@@ -1151,8 +1194,6 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
 # ── Sentiment Analysis ────────────────────────────────────────────────────────
 st.markdown("### 🧠 Sentiment Analysis")
 if not news_df.empty:
-    # Render donut and trend as separate full-width charts stacked vertically
-    # to avoid overlap issues on different screen sizes
     counts = news_df["label"].value_counts().to_dict()
     fig_donut = go.Figure(go.Pie(
         labels=["Positive","Negative","Neutral"],
@@ -1183,18 +1224,23 @@ if not news_df.empty:
 news_keyword = get_news_keyword(primary_name)
 scorer_label = news_df["scorer"].iloc[0] if not news_df.empty and "scorer" in news_df.columns else "VADER"
 scorer_note  = news_df["scorer_note"].iloc[0] if not news_df.empty and "scorer_note" in news_df.columns else ""
-scorer_color = "#00d4aa" if scorer_label == "FinBERT" else "#ffd166"
+scorer_color = "#00d4aa" if "FinBERT" in scorer_label else "#a78bfa" if "TextBlob" in scorer_label else "#ffd166"
 scorer_badge = f"<span style='font-size:0.72rem;background:#1a2035;border:1px solid {scorer_color};color:{scorer_color};padding:2px 8px;border-radius:20px;margin-left:8px'>{scorer_label}</span>"
 st.markdown(f"### 🗞️ Latest News &nbsp;<span style='font-size:0.8rem;color:#5c7cfa'>searching: '{news_keyword}'</span>{scorer_badge}",
             unsafe_allow_html=True)
 if scorer_note:
-    st.error(f"FinBERT error: {scorer_note}")
+    st.caption(f"ℹ️ FinBERT unavailable ({scorer_note}) — using VADER + TextBlob combined score.")
 if not news_df.empty:
     filt = st.radio("Filter", ["All","Positive","Negative","Neutral"],
                     horizontal=True, label_visibility="collapsed")
     filtered = news_df if filt == "All" else news_df[news_df["label"] == filt]
     for _, row in filtered.iterrows():
         bc = badge_class(row["label"])
+        v_score = row.get("vader_score", row["compound"])
+        t_score = row.get("textblob_score", 0.0)
+        score_detail = f"V:{v_score:+.2f} T:{t_score:+.2f}"
+        if row.get("finbert_score") is not None:
+            score_detail += f" F:{row['finbert_score']:+.2f}"
         st.markdown(f"""
         <div class='news-item'>
             <div class='news-title'>
@@ -1203,7 +1249,7 @@ if not news_df.empty:
                 </a>
                 <span class='badge {bc}'>{row['label']} {row['compound']:+.3f}</span>
             </div>
-            <div class='news-meta'>📡 {row['source']} &nbsp;|&nbsp; Sentiment: {row['compound']:+.2f} &nbsp;|&nbsp; {row['published_fmt']}</div>
+            <div class='news-meta'>📡 {row['source']} &nbsp;|&nbsp; {score_detail} &nbsp;|&nbsp; {row['published_fmt']}</div>
         </div>
         """, unsafe_allow_html=True)
 else:
@@ -1212,4 +1258,7 @@ else:
 # ── Raw Data ──────────────────────────────────────────────────────────────────
 if not news_df.empty:
     with st.expander("🔍 Raw sentiment data"):
-        st.dataframe(news_df[["source","title","label","compound"]], use_container_width=True)
+        cols = ["source","title","label","compound","vader_score","textblob_score"]
+        if "finbert_score" in news_df.columns:
+            cols.append("finbert_score")
+        st.dataframe(news_df[cols], use_container_width=True)
