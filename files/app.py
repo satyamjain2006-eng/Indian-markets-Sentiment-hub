@@ -1409,6 +1409,7 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
 
     if not ca_df_a.empty and not ca_df_b.empty:
         st.markdown(f"### 🔀 {ca_name_a} vs {ca_name_b}")
+
         fig_ca = go.Figure()
         for df, label, color in [(ca_df_a, ca_name_a, "#5c7cfa"), (ca_df_b, ca_name_b, "#00d4aa")]:
             df = df.drop_duplicates(subset=["Date"]).sort_values("Date").reset_index(drop=True)
@@ -1417,7 +1418,7 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
             fig_ca.add_trace(go.Scatter(
                 x=df["Date"], y=norm, name=label,
                 line=dict(color=color, width=2.5, shape="spline", smoothing=0.6),
-                hovertemplate="%{y:.1f}<extra>" + label + "</extra>"
+                hovertemplate="%{y:.2f}<extra>" + label + "</extra>"
             ))
         fig_ca.update_layout(
             template="plotly_dark", paper_bgcolor="#0e1320", plot_bgcolor="#0e1320",
@@ -1439,22 +1440,46 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
                 on="Date", how="inner"
             )
             if len(merged) > 5:
-                corr = merged["A"].corr(merged["B"])
+                corr   = merged["A"].corr(merged["B"])
+                r2     = corr ** 2          # R² = Pearson r squared
                 corr_label = (
                     "Strong positive" if corr > 0.7 else
                     "Moderate positive" if corr > 0.3 else
                     "Weak / no" if corr > -0.3 else
                     "Moderate negative" if corr > -0.7 else "Strong negative"
                 )
-                corr_color = "#00d4aa" if corr > 0.3 else "#ff4b6e" if corr < -0.3 else "#ffd166"
-                st.markdown(
-                    f"<div style='text-align:center;padding:10px;background:#131929;"
-                    f"border-radius:10px;border:1px solid #1e2640;margin-bottom:16px'>"
-                    f"<span style='color:#6b7a99;font-size:0.8rem'>CORRELATION</span><br>"
-                    f"<span style='color:{corr_color};font-size:1.6rem;font-weight:700'>{corr:+.2f}</span>"
-                    f"&nbsp;&nbsp;<span style='color:{corr_color};font-size:0.9rem'>{corr_label} correlation</span>"
-                    f"</div>", unsafe_allow_html=True
+                # R² interpretation
+                r2_label = (
+                    "moves explain each other well" if r2 > 0.7 else
+                    "moderate shared movement"      if r2 > 0.4 else
+                    "little shared movement"        if r2 > 0.1 else
+                    "essentially independent"
                 )
+                corr_color = "#00d4aa" if corr > 0.3 else "#ff4b6e" if corr < -0.3 else "#ffd166"
+                r2_color   = "#00d4aa" if r2 > 0.4 else "#ffd166"
+
+                stat_cols = st.columns(2)
+                with stat_cols[0]:
+                    st.markdown(
+                        f"<div style='text-align:center;padding:14px;background:#131929;"
+                        f"border-radius:10px;border:1px solid #1e2640;margin-bottom:16px'>"
+                        f"<span style='color:#6b7a99;font-size:0.78rem;text-transform:uppercase;"
+                        f"letter-spacing:0.8px'>Correlation (r)</span><br>"
+                        f"<span style='color:{corr_color};font-size:1.8rem;font-weight:700'>{corr:+.2f}</span><br>"
+                        f"<span style='color:{corr_color};font-size:0.82rem'>{corr_label}</span>"
+                        f"</div>", unsafe_allow_html=True
+                    )
+                with stat_cols[1]:
+                    st.markdown(
+                        f"<div style='text-align:center;padding:14px;background:#131929;"
+                        f"border-radius:10px;border:1px solid #1e2640;margin-bottom:16px'>"
+                        f"<span style='color:#6b7a99;font-size:0.78rem;text-transform:uppercase;"
+                        f"letter-spacing:0.8px'>R² (explained variance)</span><br>"
+                        f"<span style='color:{r2_color};font-size:1.8rem;font-weight:700'>{r2:.2f}</span><br>"
+                        f"<span style='color:{r2_color};font-size:0.82rem'>"
+                        f"{r2*100:.1f}% of {ca_name_b}'s variance explained by {ca_name_a}</span>"
+                        f"</div>", unsafe_allow_html=True
+                    )
         except Exception:
             pass
 
