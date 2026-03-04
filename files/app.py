@@ -263,22 +263,65 @@ def search_companies(query: str, df: pd.DataFrame, top_n: int = 12) -> pd.DataFr
     return pd.concat([p1, p2, p3, p4]).head(top_n).reset_index(drop=True)
 
 
-def get_rss_urls(keyword: str, symbol: str) -> dict:
-    gn_base = "https://news.google.com/rss/search?hl=en-IN&gl=IN&ceid=IN:en&q="
-    urls = {
-        "Google News":        gn_base + keyword.replace(" ", "+") + "+stock+India",
-        "Google News (NSE)":  gn_base + symbol + "+NSE+share+price",
-        "Google News (news)": gn_base + keyword.replace(" ", "+") + "+quarterly+results",
-    }
-    indian_feeds = {
-        "Economic Times": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
-        "MoneyControl":   "https://www.moneycontrol.com/rss/marketreports.xml",
-        "LiveMint":       "https://www.livemint.com/rss/markets",
-        "Reuters":        "https://feeds.reuters.com/reuters/businessNews",
-    }
-    proxy_base = "https://api.rss2json.com/v1/api.json?rss_url="
-    for name, feed_url in indian_feeds.items():
-        urls[name] = proxy_base + feed_url
+def get_rss_urls(keyword: str, symbol: str, asset_type: str = "stock") -> dict:
+    """Build RSS URLs tailored to the asset type.
+    asset_type: 'stock' | 'index' | 'commodity' | 'crypto' | 'forex'
+    """
+    gn  = "https://news.google.com/rss/search?hl=en-IN&gl=IN&ceid=IN:en&q="
+    enc = lambda s: s.replace(" ", "+").replace("/", "+")
+    proxy = "https://api.rss2json.com/v1/api.json?rss_url="
+
+    # ── Google News URLs — tailored per asset type ────────────────────────────
+    if asset_type == "stock":
+        urls = {
+            "Google News":         gn + enc(keyword) + "+share+price+NSE",
+            "Google News (Q)":     gn + enc(keyword) + "+quarterly+results+India",
+            "Google News (news)":  gn + enc(keyword) + "+stock+news+India",
+        }
+    elif asset_type == "index":
+        urls = {
+            "Google News":         gn + enc(keyword) + "+today",
+            "Google News (2)":     gn + "Nifty+Sensex+market+today",
+            "Google News (3)":     gn + enc(keyword) + "+stock+market+India",
+        }
+    elif asset_type == "commodity":
+        urls = {
+            "Google News":         gn + enc(keyword) + "+price+today",
+            "Google News (MCX)":   gn + enc(keyword) + "+MCX+India",
+            "Google News (world)": gn + enc(keyword) + "+price+outlook",
+        }
+    elif asset_type == "crypto":
+        urls = {
+            "Google News":         gn + enc(keyword) + "+price+today",
+            "Google News (2)":     gn + enc(keyword) + "+crypto+news",
+            "Google News (3)":     gn + enc(symbol.replace("-USD","")) + "+cryptocurrency",
+        }
+    elif asset_type == "forex":
+        # keyword is like "USD/INR", symbol like "INR=X"
+        base, _, quote = keyword.partition("/")
+        urls = {
+            "Google News":         gn + enc(keyword) + "+exchange+rate",
+            "Google News (2)":     gn + enc(base + " " + quote) + "+currency",
+            "Google News (3)":     gn + enc(keyword) + "+forex+today",
+        }
+    else:
+        urls = {
+            "Google News": gn + enc(keyword),
+        }
+
+    # ── Indian broadcast feeds — only useful for stocks/indices ───────────────
+    if asset_type in ("stock", "index"):
+        indian_feeds = {
+            "Economic Times": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
+            "MoneyControl":   "https://www.moneycontrol.com/rss/marketreports.xml",
+            "LiveMint":       "https://www.livemint.com/rss/markets",
+        }
+        for name, feed_url in indian_feeds.items():
+            urls[name] = proxy + feed_url
+
+    # Reuters always included — covers commodities, forex, crypto well
+    urls["Reuters"] = proxy + "https://feeds.reuters.com/reuters/businessNews"
+
     return urls
 
 
@@ -293,10 +336,11 @@ def parse_rss2json(url: str, source_name: str) -> list:
             title = item.get("title", "").strip()
             if title:
                 articles.append({
-                    "source":    source_name,
-                    "title":     title,
-                    "published": item.get("pubDate", "")[:25],
-                    "link":      item.get("link", "#"),
+                    "source":      source_name,
+                    "title":       title,
+                    "description": item.get("description", item.get("content", ""))[:300],
+                    "published":   item.get("pubDate", "")[:25],
+                    "link":        item.get("link", "#"),
                 })
         return articles
     except Exception:
@@ -304,6 +348,7 @@ def parse_rss2json(url: str, source_name: str) -> list:
 
 
 NEWS_KEYWORDS = {
+    # ── Stocks ────────────────────────────────────────────────────────────────
     "Adani Enterprises":"Adani","Adani Ports And Special Economic Zone":"Adani",
     "Adani Power":"Adani","Adani Green Energy":"Adani",
     "Adani Total Gas":"Adani","Adani Wilmar":"Adani",
@@ -324,8 +369,35 @@ NEWS_KEYWORDS = {
     "Pidilite Industries":"Pidilite","InterGlobe Aviation":"IndiGo",
     "Life Insurance Corporation Of India":"LIC",
     "Power Grid Corporation Of India":"Power Grid",
+    # ── MCX Commodities ───────────────────────────────────────────────────────
+    "Gold":"gold price MCX",
+    "Silver":"silver price MCX",
+    "Crude Oil":"crude oil price MCX",
+    "Natural Gas":"natural gas price MCX",
+    "Copper":"copper price MCX",
+    "Aluminium":"aluminium price MCX",
+    # ── Crypto ────────────────────────────────────────────────────────────────
+    "Bitcoin":"Bitcoin BTC",
+    "Ethereum":"Ethereum ETH",
+    "BNB":"BNB Binance",
+    "Solana":"Solana SOL",
+    "XRP":"XRP Ripple",
+    "Cardano":"Cardano ADA",
+    "Dogecoin":"Dogecoin DOGE",
+    "Avalanche":"Avalanche AVAX",
+    "Polkadot":"Polkadot DOT",
+    "Chainlink":"Chainlink LINK",
+    # ── Indices ───────────────────────────────────────────────────────────────
+    "Nifty 50":"Nifty 50 NSE",
+    "Sensex":"Sensex BSE",
+    "Nifty Bank":"Nifty Bank",
+    "Nifty Midcap 50":"Nifty Midcap",
 }
 
+# Asset classes that need commodity/macro-style news matching (not stock search)
+_COMMODITY_ASSETS = {"Gold","Silver","Crude Oil","Natural Gas","Copper","Aluminium"}
+_CRYPTO_ASSETS    = {"Bitcoin","Ethereum","BNB","Solana","XRP","Cardano",
+                     "Dogecoin","Avalanche","Polkadot","Chainlink"}
 
 def get_news_keyword(company_name: str) -> str:
     if company_name in NEWS_KEYWORDS:
@@ -508,21 +580,49 @@ def badge_class(label):
 def fetch_news(company_name: str) -> pd.DataFrame:
     keyword  = get_news_keyword(company_name)
     symbol   = st.session_state.get("primary_symbol", "")
-    rss_urls = get_rss_urls(keyword, symbol)
 
-    search_terms = {keyword.lower(), symbol.lower()}
-    for word in company_name.split():
-        if len(word) >= 4:
-            search_terms.add(word.lower())
+    # ── Determine asset type ──────────────────────────────────────────────────
+    is_commodity = company_name in _COMMODITY_ASSETS
+    is_crypto    = company_name in _CRYPTO_ASSETS
+    is_forex     = "/" in company_name and len(company_name) <= 8  # e.g. "USD/INR"
+    is_index     = company_name in {"Nifty 50","Sensex","Nifty Bank","Nifty Midcap 50"}
 
-    INDEX_NAMES = {"nifty", "sensex", "nse", "bse", "dalal street",
-                   "indian market", "indian stock", "indian equit", "gift nifty",
-                   "d-street", "market today", "market open", "market close",
-                   "nifty50", "nifty 50", "sensex", "broad market", "equity market"}
-    is_index = any(t in search_terms for t in {"nifty", "sensex", "nsebank", "nsemdcp50"})
+    if is_commodity:   asset_type = "commodity"
+    elif is_crypto:    asset_type = "crypto"
+    elif is_forex:     asset_type = "forex"
+    elif is_index:     asset_type = "index"
+    else:              asset_type = "stock"
 
-    # Hard blocklist — these foreign company names in the TITLE = always exclude
-    # regardless of description content. Use word-boundary style checks.
+    rss_urls = get_rss_urls(keyword, symbol, asset_type)
+
+    # ── Build match terms for relevance filtering ─────────────────────────────
+    if is_forex:
+        base, _, quote = company_name.partition("/")
+        # match either currency code, the pair itself, or common representations
+        search_terms = {
+            company_name.lower(),          # "usd/inr"
+            base.lower(),                  # "usd"
+            quote.lower(),                 # "inr"
+            (base + quote).lower(),        # "usdinr"
+            (base + "/" + quote).lower(),  # "usd/inr"
+        }
+    elif is_commodity:
+        search_terms = {company_name.lower()}   # "natural gas", "crude oil" etc.
+        search_terms.update(company_name.lower().split())
+    elif is_crypto:
+        ticker_clean = symbol.lower().replace("-usd","")   # "btc", "eth"
+        search_terms = {company_name.lower(), ticker_clean}
+    elif is_index:
+        search_terms = {keyword.lower(), "nifty", "sensex", "nse", "bse"}
+        search_terms.update(keyword.lower().split())
+    else:
+        # Stock — use keyword + all meaningful words from name
+        search_terms = {keyword.lower(), symbol.lower()}
+        for word in company_name.split():
+            if len(word) >= 3:
+                search_terms.add(word.lower())
+
+    # Hard block: well-known foreign companies that pollute Indian market feeds
     FOREIGN_HARD_BLOCK = {
         "amazon", "apple inc", "apple shares", "apple stock", "apple iphone",
         "google", "alphabet", "microsoft", "tesla", "nvidia", "meta platforms",
@@ -531,42 +631,44 @@ def fetch_news(company_name: str) -> pd.DataFrame:
         "mark zuckerberg", "warren buffett",
     }
 
-    MACRO_RELEVANT = {"oil", "crude", "gold", "fed ", "federal reserve", "rate cut",
-                      "rate hike", "inflation", "recession", "war", "iran", "russia",
-                      "ukraine", "israel", "china", "us-india", "rupee", "dollar",
-                      "opec", "sanctions", "tariff", "trade war", "gdp", "imf",
-                      "world bank", "rbi", "sebi", "budget", "fiscal"}
-
-    # Method B: strong index-specific terms
     INDEX_SPECIFIC = {"nifty", "sensex", "nifty50", "nifty 50", "^nsei", "^bsesn",
                       "market crash", "market rally", "market fall", "market rise",
                       "market close", "market open", "d-street", "dalal street",
                       "gift nifty", "indian stock market", "stock market today",
                       "equity market", "bse", "nse"}
-
-    MOVE_SIGNALS = {"%", "points", "pts", "falls", "rises", "gains", "loses",
-                    "crashes", "tanks", "surges", "rallies", "plunges", "jumps",
-                    "slides", "climbs", "drops", "declines", "advances",
-                    "week high", "week low", "month high", "month low",
-                    "support", "resistance", "opens at", "closes at"}
+    MOVE_SIGNALS   = {"%", "points", "pts", "falls", "rises", "gains", "loses",
+                      "crashes", "tanks", "surges", "rallies", "plunges", "jumps",
+                      "slides", "climbs", "drops", "declines", "advances",
+                      "week high", "week low", "month high", "month low"}
 
     def is_relevant(title: str, description: str = "") -> bool:
-        t = title.lower()
-        combined_text = (t + " " + description.lower())
+        t    = title.lower()
+        comb = (t + " " + description.lower())
 
-        # Hard block: if title contains a foreign company name → always reject
-        # Check title only (not description) to avoid false positives
-        if any(noise in t for noise in FOREIGN_HARD_BLOCK):
-            return False
+        # Hard block always applies (foreign noise in Indian feeds)
+        if not is_forex and not is_crypto:
+            if any(noise in t for noise in FOREIGN_HARD_BLOCK):
+                return False
+
+        if is_commodity:
+            return company_name.lower() in comb
+
+        if is_crypto:
+            ticker_clean = symbol.lower().replace("-usd","")
+            return company_name.lower() in comb or ticker_clean in comb
+
+        if is_forex:
+            # Accept if either currency code appears
+            base, _, quote = company_name.partition("/")
+            return (base.lower() in comb and quote.lower() in comb) or company_name.lower() in comb
 
         if is_index:
-            has_index_specific = any(term in combined_text for term in INDEX_SPECIFIC)
-            has_macro          = any(term in combined_text for term in MACRO_RELEVANT)
-            has_move           = any(sig in combined_text for sig in MOVE_SIGNALS)
-            # Must pass the hard block AND be index/market relevant with a move signal
-            return (has_index_specific and has_move) or (has_index_specific and has_macro)
+            has_index = any(term in comb for term in INDEX_SPECIFIC)
+            has_move  = any(sig in comb for sig in MOVE_SIGNALS)
+            return has_index and has_move
 
-        return any(term in combined_text for term in search_terms)
+        # Stock — match on any search term (keyword, symbol, name words)
+        return any(term in comb for term in search_terms)
 
     indian_sources = {"Economic Times", "MoneyControl", "LiveMint", "Reuters"}
 
