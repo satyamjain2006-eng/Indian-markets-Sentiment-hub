@@ -353,16 +353,16 @@ def finbert_scores(texts: list[str]) -> tuple[list[dict], str]:
         for i in range(0, len(texts), 8):
             batch = texts[i:i+8]
             resp = requests.post(
-                "https://api-inference.huggingface.co/models/ProsusAI/finbert",
-                headers=headers,
-                json={"inputs": batch, "options": {"wait_for_model": False}},
-                timeout=8,
+                "https://router.huggingface.co/hf-inference/models/ProsusAI/finbert",
+                headers={**headers, "x-wait-for-model": "true"},
+                json={"inputs": batch},
+                timeout=15,
             )
             if resp.status_code == 503:
                 return [], "Model loading — will be ready next refresh"
             if resp.status_code == 401: return [], "Invalid API key (401)"
             if resp.status_code == 403: return [], "Token lacks Inference permission (403)"
-            if resp.status_code != 200: return [], f"HTTP {resp.status_code}"
+            if resp.status_code != 200: return [], f"HTTP {resp.status_code}: {resp.text[:100]}"
             data = resp.json()
             if isinstance(data, dict) and "error" in data:
                 return [], data["error"]
