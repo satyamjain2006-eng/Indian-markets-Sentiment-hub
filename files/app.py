@@ -343,42 +343,50 @@ def get_news_keyword(company_name: str) -> str:
 HF_API_URL = "https://api-inference.huggingface.co/models/ProsusAI/finbert"
 HF_API_KEY = st.secrets.get("HF_API_KEY", "")
 
-def finbert_scores(texts: list[str]) -> list[dict]:
+def finbert_scores(texts: list[str]) -> tuple[list[dict], str]:
     """Score a batch of texts via HuggingFace FinBERT API.
-    Returns list of {label, score} dicts. Falls back to VADER on any error."""
+    Returns (results, error_msg). Falls back to VADER on any error."""
     if not HF_API_KEY:
-        return []
+        return [], "No API key set"
     try:
         headers = {"Authorization": f"Bearer {HF_API_KEY}"}
-        resp = requests.post(
-            HF_API_URL,
-            headers=headers,
-            json={"inputs": texts, "options": {"wait_for_model": True}},
-            timeout=30
-        )
-        if resp.status_code != 200:
-            return []
-        results = resp.json()
-        # Each result is a list of [{label, score}, ...] — pick highest score label
-        parsed = []
-        for item in results:
-            if isinstance(item, list):
-                best = max(item, key=lambda x: x["score"])
-                # Normalise label: positive->Positive, negative->Negative, neutral->Neutral
-                label = best["label"].capitalize()
-                # Convert to compound-like score: positive=+score, negative=-score, neutral=0
-                if label == "Positive":
-                    compound = best["score"]
-                elif label == "Negative":
-                    compound = -best["score"]
+        # Send in batches of 20 to avoid payload limits
+        all_parsed = []
+        for i in range(0, len(texts), 20):
+            batch = texts[i:i+20]
+            resp = requests.post(
+                HF_API_URL,
+                headers=headers,
+                json={"inputs": batch, "options": {"wait_for_model": True}},
+                timeout=45
+            )
+            if resp.status_code == 503:
+                return [], "Model loading (503) — will retry next refresh"
+            if resp.status_code == 401:
+                return [], "Invalid API key (401)"
+            if resp.status_code == 403:
+                return [], "Token missing Inference permissions (403)"
+            if resp.status_code != 200:
+                return [], f"API error {resp.status_code}"
+            results = resp.json()
+            if isinstance(results, dict) and "error" in results:
+                return [], f"API error: {results['error']}"
+            for item in results:
+                if isinstance(item, list):
+                    best  = max(item, key=lambda x: x["score"])
+                    label = best["label"].capitalize()
+                    if label == "Positive":
+                        compound = best["score"]
+                    elif label == "Negative":
+                        compound = -best["score"]
+                    else:
+                        compound = 0.0
+                    all_parsed.append({"label": label, "compound": round(compound, 4)})
                 else:
-                    compound = 0.0
-                parsed.append({"label": label, "compound": round(compound, 4)})
-            else:
-                parsed.append(None)
-        return parsed
-    except Exception:
-        return []
+                    all_parsed.append(None)
+        return all_parsed, ""
+    except Exception as e:
+        return [], str(e)
 
 
 # Fallback VADER for when HF API is unavailable
@@ -502,20 +510,20 @@ def fetch_news(company_name: str) -> pd.DataFrame:
 
     # ── Sentiment scoring: FinBERT preferred, VADER fallback ─────────────────
     titles = df["title"].tolist()
-    finbert_results = finbert_scores(titles)
+    finbert_results, finbert_error = finbert_scores(titles)
 
     if finbert_results and len(finbert_results) == len(titles):
-        # FinBERT succeeded
         df["compound"] = [r["compound"] if r else vader_score(t)
                           for r, t in zip(finbert_results, titles)]
         df["label"]    = [r["label"] if r else label_from_score(vader_score(t))
                           for r, t in zip(finbert_results, titles)]
         df["scorer"]   = "FinBERT"
+        df["scorer_note"] = ""
     else:
-        # VADER fallback
         df["compound"] = df["title"].apply(vader_score)
         df["label"]    = df["compound"].apply(label_from_score)
         df["scorer"]   = "VADER"
+        df["scorer_note"] = finbert_error
 
     df["published_fmt"] = df["published_dt"].dt.strftime("%-d %B %Y, %I:%M %p").fillna(df["published"])
     return df
@@ -1176,8 +1184,10 @@ if not news_df.empty:
 # ── News Feed ─────────────────────────────────────────────────────────────────
 news_keyword = get_news_keyword(primary_name)
 scorer_label = news_df["scorer"].iloc[0] if not news_df.empty and "scorer" in news_df.columns else "VADER"
+scorer_note  = news_df["scorer_note"].iloc[0] if not news_df.empty and "scorer_note" in news_df.columns else ""
 scorer_color = "#00d4aa" if scorer_label == "FinBERT" else "#ffd166"
-scorer_badge = f"<span style='font-size:0.72rem;background:#1a2035;border:1px solid {scorer_color};color:{scorer_color};padding:2px 8px;border-radius:20px;margin-left:8px'>{scorer_label}</span>"
+scorer_title = f" — {scorer_note}" if scorer_note else ""
+scorer_badge = f"<span title='{scorer_title}' style='font-size:0.72rem;background:#1a2035;border:1px solid {scorer_color};color:{scorer_color};padding:2px 8px;border-radius:20px;margin-left:8px;cursor:help'>{scorer_label}{' ⚠' if scorer_note else ''}</span>"
 st.markdown(f"### 🗞️ Latest News &nbsp;<span style='font-size:0.8rem;color:#5c7cfa'>searching: '{news_keyword}'</span>{scorer_badge}",
             unsafe_allow_html=True)
 if not news_df.empty:
