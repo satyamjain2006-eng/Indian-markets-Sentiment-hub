@@ -5,7 +5,6 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from PIL import Image
 import requests
 import io
@@ -340,10 +339,54 @@ def get_news_keyword(company_name: str) -> str:
     return words[0] if words else company_name
 
 
-vader = SentimentIntensityAnalyzer()
+# ── FinBERT via HuggingFace Inference API ────────────────────────────────────
+HF_API_URL = "https://api-inference.huggingface.co/models/ProsusAI/finbert"
+HF_API_KEY = st.secrets.get("HF_API_KEY", "")
+
+def finbert_scores(texts: list[str]) -> list[dict]:
+    """Score a batch of texts via HuggingFace FinBERT API.
+    Returns list of {label, score} dicts. Falls back to VADER on any error."""
+    if not HF_API_KEY:
+        return []
+    try:
+        headers = {"Authorization": f"Bearer {HF_API_KEY}"}
+        resp = requests.post(
+            HF_API_URL,
+            headers=headers,
+            json={"inputs": texts, "options": {"wait_for_model": True}},
+            timeout=30
+        )
+        if resp.status_code != 200:
+            return []
+        results = resp.json()
+        # Each result is a list of [{label, score}, ...] — pick highest score label
+        parsed = []
+        for item in results:
+            if isinstance(item, list):
+                best = max(item, key=lambda x: x["score"])
+                # Normalise label: positive->Positive, negative->Negative, neutral->Neutral
+                label = best["label"].capitalize()
+                # Convert to compound-like score: positive=+score, negative=-score, neutral=0
+                if label == "Positive":
+                    compound = best["score"]
+                elif label == "Negative":
+                    compound = -best["score"]
+                else:
+                    compound = 0.0
+                parsed.append({"label": label, "compound": round(compound, 4)})
+            else:
+                parsed.append(None)
+        return parsed
+    except Exception:
+        return []
+
+
+# Fallback VADER for when HF API is unavailable
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer as _VADER
+_vader = _VADER()
 
 def vader_score(text: str) -> float:
-    return vader.polarity_scores(text)["compound"]
+    return _vader.polarity_scores(text)["compound"]
 
 def label_from_score(score: float) -> str:
     if score >= 0.07:  return "Positive"
@@ -368,8 +411,33 @@ def fetch_news(company_name: str) -> pd.DataFrame:
         if len(word) >= 4:
             search_terms.add(word.lower())
 
+    # ── Extra terms for Indian indices ───────────────────────────────────────
+    INDEX_NAMES = {"nifty", "sensex", "nse", "bse", "dalal street",
+                   "indian market", "indian stock", "indian equit", "gift nifty",
+                   "d-street", "market today", "market open", "market close"}
+    is_index = any(t in search_terms for t in {"nifty", "sensex", "nsebank", "nsemdcp50"})
+
+    # Pure foreign company stories with no macro relevance
+    FOREIGN_COMPANY_NOISE = {"amazon", "apple ", "google", "microsoft", "tesla",
+                              "nvidia", "meta ", "netflix", "moderna", "pfizer",
+                              "spacex", "openai"}
+
+    # Macro/geopolitical terms that DO affect Indian markets — always keep these
+    MACRO_RELEVANT = {"oil", "crude", "gold", "fed ", "federal reserve", "rate cut",
+                      "rate hike", "inflation", "recession", "war", "iran", "russia",
+                      "ukraine", "israel", "china", "us-india", "rupee", "dollar",
+                      "opec", "sanctions", "tariff", "trade war", "gdp", "imf",
+                      "world bank", "rbi", "sebi", "budget", "fiscal"}
+
     def is_relevant(title: str) -> bool:
-        return any(term in title.lower() for term in search_terms)
+        t = title.lower()
+        if is_index:
+            has_india_term  = any(term in t for term in search_terms | INDEX_NAMES)
+            has_macro       = any(term in t for term in MACRO_RELEVANT)
+            is_foreign_only = (any(noise in t for noise in FOREIGN_COMPANY_NOISE)
+                               and not has_macro and not has_india_term)
+            return (has_india_term or has_macro) and not is_foreign_only
+        return any(term in t for term in search_terms)
 
     indian_sources = {"Economic Times", "MoneyControl", "LiveMint", "Reuters"}
 
@@ -431,8 +499,24 @@ def fetch_news(company_name: str) -> pd.DataFrame:
     df = df.drop(columns=["relevant"], errors="ignore").reset_index(drop=True)
     df["published_dt"] = pd.to_datetime(df["published"], errors="coerce")
     df = df.sort_values("published_dt", ascending=False).reset_index(drop=True)
-    df["compound"] = df["title"].apply(vader_score)
-    df["label"]    = df["compound"].apply(label_from_score)
+
+    # ── Sentiment scoring: FinBERT preferred, VADER fallback ─────────────────
+    titles = df["title"].tolist()
+    finbert_results = finbert_scores(titles)
+
+    if finbert_results and len(finbert_results) == len(titles):
+        # FinBERT succeeded
+        df["compound"] = [r["compound"] if r else vader_score(t)
+                          for r, t in zip(finbert_results, titles)]
+        df["label"]    = [r["label"] if r else label_from_score(vader_score(t))
+                          for r, t in zip(finbert_results, titles)]
+        df["scorer"]   = "FinBERT"
+    else:
+        # VADER fallback
+        df["compound"] = df["title"].apply(vader_score)
+        df["label"]    = df["compound"].apply(label_from_score)
+        df["scorer"]   = "VADER"
+
     df["published_fmt"] = df["published_dt"].dt.strftime("%-d %B %Y, %I:%M %p").fillna(df["published"])
     return df
 
@@ -539,7 +623,8 @@ def build_price_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
         xaxis_rangeslider_visible=False, hovermode="x unified",
         xaxis=dict(showgrid=False, zeroline=False, color="#4a5568"),
         xaxis2=dict(showgrid=False, zeroline=False, color="#4a5568"),
-        yaxis=dict(gridcolor="#1a2035", zeroline=False, color="#4a5568", side="right"),
+        yaxis=dict(gridcolor="#1a2035", zeroline=False, color="#4a5568", side="right",
+                   tickformat=",.2f", separatethousands=True),
         yaxis2=dict(gridcolor="#1a2035", zeroline=True, zerolinecolor="#2a3560",
                     color="#4a5568", side="right"),
     )
@@ -1090,7 +1175,10 @@ if not news_df.empty:
 
 # ── News Feed ─────────────────────────────────────────────────────────────────
 news_keyword = get_news_keyword(primary_name)
-st.markdown(f"### 🗞️ Latest News &nbsp;<span style='font-size:0.8rem;color:#5c7cfa'>searching: '{news_keyword}'</span>",
+scorer_label = news_df["scorer"].iloc[0] if not news_df.empty and "scorer" in news_df.columns else "VADER"
+scorer_color = "#00d4aa" if scorer_label == "FinBERT" else "#ffd166"
+scorer_badge = f"<span style='font-size:0.72rem;background:#1a2035;border:1px solid {scorer_color};color:{scorer_color};padding:2px 8px;border-radius:20px;margin-left:8px'>{scorer_label}</span>"
+st.markdown(f"### 🗞️ Latest News &nbsp;<span style='font-size:0.8rem;color:#5c7cfa'>searching: '{news_keyword}'</span>{scorer_badge}",
             unsafe_allow_html=True)
 if not news_df.empty:
     filt = st.radio("Filter", ["All","Positive","Negative","Neutral"],
