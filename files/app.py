@@ -340,7 +340,7 @@ def get_news_keyword(company_name: str) -> str:
 
 
 # ── FinBERT via HuggingFace Inference API ────────────────────────────────────
-HF_API_URL = "https://router.huggingface.co/hf-inference/models/ProsusAI/finbert"
+HF_API_URL = "https://api-inference.huggingface.co/pipeline/text-classification/ProsusAI/finbert"
 HF_API_KEY = st.secrets.get("HF_API_KEY", "")
 
 def finbert_scores(texts: list[str]) -> tuple[list[dict], str]:
@@ -358,7 +358,7 @@ def finbert_scores(texts: list[str]) -> tuple[list[dict], str]:
                 HF_API_URL,
                 headers=headers,
                 json={"inputs": batch, "options": {"wait_for_model": True}},
-                timeout=45
+                timeout=20
             )
             if resp.status_code == 410:
                 return [], "API endpoint moved (410) — URL updated"
@@ -1188,8 +1188,7 @@ news_keyword = get_news_keyword(primary_name)
 scorer_label = news_df["scorer"].iloc[0] if not news_df.empty and "scorer" in news_df.columns else "VADER"
 scorer_note  = news_df["scorer_note"].iloc[0] if not news_df.empty and "scorer_note" in news_df.columns else ""
 scorer_color = "#00d4aa" if scorer_label == "FinBERT" else "#ffd166"
-scorer_title = f" — {scorer_note}" if scorer_note else ""
-scorer_badge = f"<span title='{scorer_title}' style='font-size:0.72rem;background:#1a2035;border:1px solid {scorer_color};color:{scorer_color};padding:2px 8px;border-radius:20px;margin-left:8px;cursor:help'>{scorer_label}{' ⚠' if scorer_note else ''}</span>"
+scorer_badge = f"<span style='font-size:0.72rem;background:#1a2035;border:1px solid {scorer_color};color:{scorer_color};padding:2px 8px;border-radius:20px;margin-left:8px'>{scorer_label}{' ⚠' if scorer_note else ''}</span>"
 st.markdown(f"### 🗞️ Latest News &nbsp;<span style='font-size:0.8rem;color:#5c7cfa'>searching: '{news_keyword}'</span>{scorer_badge}",
             unsafe_allow_html=True)
 if not news_df.empty:
