@@ -441,16 +441,25 @@ def fetch_news(company_name: str) -> pd.DataFrame:
 def fetch_price(ticker: str, period: str) -> pd.DataFrame:
     try:
         if period == "1d":
-            data = yf.download(ticker, period="1d", interval="15m", progress=False, auto_adjust=True)
+            data = yf.download(ticker, period="1d", interval="5m", progress=False, auto_adjust=True)
         elif period == "5d":
-            data = yf.download(ticker, period="5d", interval="30m", progress=False, auto_adjust=True)
+            data = yf.download(ticker, period="5d", interval="15m", progress=False, auto_adjust=True)
         else:
             data = yf.download(ticker, period=period, progress=False, auto_adjust=True)
         if isinstance(data.columns, pd.MultiIndex):
             data.columns = data.columns.get_level_values(0)
         data = data.reset_index()
+        # Rename Datetime -> Date for intraday data
         if "Datetime" in data.columns:
             data = data.rename(columns={"Datetime": "Date"})
+        # ── Convert UTC -> IST (UTC+5:30) for intraday periods ───────────────
+        if period in ("1d", "5d") and "Date" in data.columns:
+            if hasattr(data["Date"].dtype, "tz") and data["Date"].dt.tz is not None:
+                # Already tz-aware — convert to IST
+                data["Date"] = data["Date"].dt.tz_convert("Asia/Kolkata").dt.tz_localize(None)
+            else:
+                # Naive timestamps from yfinance — assume UTC, shift to IST
+                data["Date"] = pd.to_datetime(data["Date"]) + pd.Timedelta(hours=5, minutes=30)
         return data
     except Exception:
         return pd.DataFrame()
@@ -901,7 +910,9 @@ with col_h2:
     st.markdown("<h1 style='margin-top:4px;color:#e0e6f0'>Indian Market Sentiment Hub</h1>",
                 unsafe_allow_html=True)
 
-last_updated = datetime.now().strftime("%d %b %Y, %I:%M:%S %p")
+from datetime import timezone
+from zoneinfo import ZoneInfo
+last_updated = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d %b %Y, %I:%M:%S %p IST")
 st.markdown(
     f"**{asset_class}** &nbsp;›&nbsp; **{primary_name}** "
     f"(`{primary_ticker}`) &nbsp;|&nbsp; 🔄 Last updated: `{last_updated}`"
