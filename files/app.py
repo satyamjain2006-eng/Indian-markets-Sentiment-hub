@@ -340,47 +340,55 @@ def get_news_keyword(company_name: str) -> str:
 # ── Sentiment scorers ─────────────────────────────────────────────────────────
 HF_API_KEY = st.secrets.get("HF_API_KEY", "")
 
+# DistilRoBERTa fine-tuned on financial news — finance-specific, faster than FinBERT
+_DISTILROBERTA_URL = (
+    "https://router.huggingface.co/hf-inference/models/"
+    "mrm8488/distilroberta-finetuned-financial-news-sentiment-analysis"
+)
+# Label map: this model returns "positive" / "negative" / "neutral" (lowercase)
+_DR_LABEL_MAP = {"positive": "Positive", "negative": "Negative", "neutral": "Neutral"}
+
 def finbert_scores(texts: list) -> tuple:
+    """Score texts with DistilRoBERTa (financial news fine-tuned).
+    Falls back silently — caller handles empty list as 'use VADER+TextBlob'.
+    Returns (results_list, error_msg)."""
     if not HF_API_KEY:
-        return [], "No API key set"
+        return [], ""          # silent — no key is expected on some deployments
     try:
         headers = {"Authorization": f"Bearer {HF_API_KEY}"}
         all_parsed = []
-        for i in range(0, len(texts), 8):
-            batch = texts[i:i+8]
+        for i in range(0, len(texts), 16):   # DistilRoBERTa handles larger batches
+            batch = texts[i:i+16]
             resp = requests.post(
-                "https://router.huggingface.co/hf-inference/models/ProsusAI/finbert",
+                _DISTILROBERTA_URL,
                 headers={**headers, "x-wait-for-model": "true"},
                 json={"inputs": batch},
-                timeout=15,
+                timeout=25,
             )
-            if resp.status_code == 503:
-                return [], "Model loading — will be ready next refresh"
-            if resp.status_code == 401: return [], "Invalid API key (401)"
-            if resp.status_code == 403: return [], "Token lacks Inference permission (403)"
-            if resp.status_code != 200: return [], f"HTTP {resp.status_code}: {resp.text[:100]}"
+            if resp.status_code in (503, 504):
+                return [], "Model warming up"
+            if resp.status_code == 401: return [], "Invalid HF API key"
+            if resp.status_code == 403: return [], "Token lacks Inference permission"
+            if resp.status_code != 200: return [], f"HTTP {resp.status_code}"
             data = resp.json()
             if isinstance(data, dict) and "error" in data:
                 return [], data["error"]
             for item in data:
                 try:
-                    if isinstance(item, list):
-                        best = max(item, key=lambda x: x["score"])
-                    else:
-                        best = item
-                    label = best["label"].strip().capitalize()
-                    if label not in ("Positive","Negative","Neutral"):
-                        label = label.title()
+                    candidates = item if isinstance(item, list) else [item]
+                    best  = max(candidates, key=lambda x: x["score"])
+                    label = _DR_LABEL_MAP.get(best["label"].strip().lower(), "Neutral")
                     score = best["score"]
-                    compound = score if label=="Positive" else (-score if label=="Negative" else 0.0)
-                    all_parsed.append({"label": label, "compound": round(compound,4)})
+                    compound = score if label == "Positive" else (
+                               -score if label == "Negative" else 0.0)
+                    all_parsed.append({"label": label, "compound": round(compound, 4)})
                 except Exception:
                     all_parsed.append(None)
         return all_parsed, ""
     except requests.exceptions.Timeout:
-        return [], "Timeout — model may be cold, retrying next refresh"
-    except Exception as e:
-        return [], str(e)
+        return [], "Timeout"
+    except Exception:
+        return [], "Unavailable"
 
 
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer as _VADER
@@ -531,7 +539,7 @@ def fetch_news(company_name: str) -> pd.DataFrame:
                                for i, r in enumerate(finbert_results)]
         # Final compound = average of all three
         df["compound"] = df[["vader_score","textblob_score","finbert_score"]].mean(axis=1).round(4)
-        df["scorer"]      = "FinBERT + VADER + TextBlob"
+        df["scorer"]      = "DistilRoBERTa + VADER + TextBlob"
         df["scorer_note"] = ""
     else:
         df["finbert_score"] = None
@@ -717,9 +725,9 @@ def build_sentiment_trend(df: pd.DataFrame) -> go.Figure:
     if has_finbert:
         fig.add_trace(go.Scatter(
             x=daily["date"], y=daily["finbert_score"],
-            mode="lines", name="FinBERT",
+            mode="lines", name="DistilRoBERTa",
             line=dict(color="rgba(100,200,255,0.5)", width=1.5, dash="dot"),
-            hovertemplate="FinBERT: %{y:.3f}<extra></extra>",
+            hovertemplate="DistilRoBERTa: %{y:.3f}<extra></extra>",
         ))
 
     # ── Connector line ────────────────────────────────────────────────────────
@@ -746,7 +754,7 @@ def build_sentiment_trend(df: pd.DataFrame) -> go.Figure:
                 "Combined: <b>%{customdata[2]:.3f}</b><br>"
                 "VADER: %{customdata[3]:.3f} &nbsp;|&nbsp; "
                 "TextBlob: %{customdata[4]:.3f} &nbsp;|&nbsp; "
-                "FinBERT: %{customdata[5]:.3f}<br>"
+                "DistilRoBERTa: %{customdata[5]:.3f}<br>"
                 "Articles: <b>%{customdata[1]}</b><br>"
                 "%{customdata[0]}<extra></extra>"
             )
@@ -1224,12 +1232,11 @@ if not news_df.empty:
 news_keyword = get_news_keyword(primary_name)
 scorer_label = news_df["scorer"].iloc[0] if not news_df.empty and "scorer" in news_df.columns else "VADER"
 scorer_note  = news_df["scorer_note"].iloc[0] if not news_df.empty and "scorer_note" in news_df.columns else ""
-scorer_color = "#00d4aa" if "FinBERT" in scorer_label else "#a78bfa" if "TextBlob" in scorer_label else "#ffd166"
+scorer_color = "#00d4aa" if "DistilRoBERTa" in scorer_label else "#a78bfa" if "TextBlob" in scorer_label else "#ffd166"
 scorer_badge = f"<span style='font-size:0.72rem;background:#1a2035;border:1px solid {scorer_color};color:{scorer_color};padding:2px 8px;border-radius:20px;margin-left:8px'>{scorer_label}</span>"
 st.markdown(f"### 🗞️ Latest News &nbsp;<span style='font-size:0.8rem;color:#5c7cfa'>searching: '{news_keyword}'</span>{scorer_badge}",
             unsafe_allow_html=True)
-if scorer_note:
-    st.caption(f"ℹ️ FinBERT unavailable ({scorer_note}) — using VADER + TextBlob combined score.")
+# DistilRoBERTa failures are silent — VADER+TextBlob always covers
 if not news_df.empty:
     filt = st.radio("Filter", ["All","Positive","Negative","Neutral"],
                     horizontal=True, label_visibility="collapsed")
@@ -1239,8 +1246,8 @@ if not news_df.empty:
         v_score = row.get("vader_score", row["compound"])
         t_score = row.get("textblob_score", 0.0)
         score_detail = f"V:{v_score:+.2f} T:{t_score:+.2f}"
-        if row.get("finbert_score") is not None:
-            score_detail += f" F:{row['finbert_score']:+.2f}"
+        if row.get("finbert_score") is not None and not pd.isna(row["finbert_score"]):
+            score_detail += f" R:{row['finbert_score']:+.2f}"
         st.markdown(f"""
         <div class='news-item'>
             <div class='news-title'>
