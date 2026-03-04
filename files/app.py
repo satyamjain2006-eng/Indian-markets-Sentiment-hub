@@ -416,6 +416,69 @@ def combined_score(text: str) -> float:
     t = textblob_score(text)
     return round((v + t) / 2, 4)
 
+# ── Method A: Finance-specific keyword booster ────────────────────────────────
+_FIN_NEGATIVE = {
+    # market moves
+    "crash":"crash","crashed":"crash","crashes":"crash",
+    "tank":"tank","tanks":"tank","tanked":"tank",
+    "plunge":"plunge","plunged":"plunge","plunges":"plunge",
+    "bleed":"bleed","bleeds":"bleed","bled":"bleed",
+    "tumble":"tumble","tumbled":"tumble","tumbles":"tumble",
+    "slide":"slide","slides":"slide","slid":"slide",
+    "slump":"slump","slumps":"slump","slumped":"slump",
+    "selloff":"selloff","sell-off":"selloff","sell off":"selloff",
+    "rout":"rout","bloodbath":"bloodbath","meltdown":"meltdown",
+    "freefall":"freefall","free fall":"freefall",
+    "nosedive":"nosedive","nose-dive":"nosedive",
+    "correction":"correction","bear":"bear","bearish":"bear",
+    "circuit breaker":"circuit","lower circuit":"circuit",
+    "fii selling":"fii_sell","foreign selling":"fii_sell",
+    "outflow":"outflow","outflows":"outflow",
+    "loss":"loss","losses":"loss","deficit":"deficit",
+    "downgrade":"downgrade","downgraded":"downgrade",
+    "weak":"weak","weakness":"weak","weaker":"weak",
+    "concern":"concern","concerns":"concern","worry":"worry","worried":"worry",
+    "war":"war","tension":"tension","conflict":"conflict","crisis":"crisis",
+    "sanction":"sanction","ban":"ban","default":"default",
+}
+_FIN_POSITIVE = {
+    "rally":"rally","rallied":"rally","rallies":"rally",
+    "surge":"surge","surged":"surge","surges":"surge",
+    "soar":"soar","soared":"soar","soars":"soar",
+    "jump":"jump","jumped":"jump","jumps":"jump",
+    "gain":"gain","gains":"gain","gained":"gain",
+    "rise":"rise","rises":"rise","rose":"rise",
+    "climb":"climb","climbed":"climb","climbs":"climb",
+    "bull":"bull","bullish":"bull","breakout":"breakout",
+    "all-time high":"ath","record high":"ath","52-week high":"ath",
+    "fii buying":"fii_buy","foreign buying":"fii_buy",
+    "inflow":"inflow","inflows":"inflow",
+    "profit":"profit","profits":"profit","beat":"beat","beats":"beat",
+    "upgrade":"upgrade","upgraded":"upgrade",
+    "strong":"strong","strength":"strong","stronger":"strong",
+    "recovery":"recovery","recover":"recovery","rebound":"rebound",
+    "optimism":"optimism","positive":"positive_kw","growth":"growth",
+}
+
+# High-impact single keywords that alone strongly signal direction
+_FIN_STRONG_NEG = {"crash","crashed","crashes","plunge","plunged","plunges",
+                   "bloodbath","meltdown","freefall","free fall","rout","circuit breaker",
+                   "lower circuit","nosedive","bleed","bleeds","bled","selloff","sell-off"}
+_FIN_STRONG_POS = {"rally","rallied","soar","soared","surge","surged",
+                   "all-time high","record high","breakout","bull run","fii buying"}
+
+def finance_boost(text: str) -> float:
+    """Return a score adjustment in [-0.55, +0.55] based on finance keywords.
+    Strong single keywords worth ±0.20 each; regular keywords ±0.10 each."""
+    t = text.lower()
+    neg_strong = sum(1 for kw in _FIN_STRONG_NEG if kw in t)
+    pos_strong = sum(1 for kw in _FIN_STRONG_POS if kw in t)
+    neg_reg    = sum(1 for kw in _FIN_NEGATIVE if kw in t and kw not in _FIN_STRONG_NEG)
+    pos_reg    = sum(1 for kw in _FIN_POSITIVE if kw in t and kw not in _FIN_STRONG_POS)
+    neg_total  = min(neg_strong * 0.20 + neg_reg * 0.10, 0.55)
+    pos_total  = min(pos_strong * 0.20 + pos_reg * 0.10, 0.55)
+    return round(pos_total - neg_total, 4)
+
 def label_from_score(score: float) -> str:
     if score >= 0.07:  return "Positive"
     if score <= -0.07: return "Negative"
@@ -441,26 +504,47 @@ def fetch_news(company_name: str) -> pd.DataFrame:
 
     INDEX_NAMES = {"nifty", "sensex", "nse", "bse", "dalal street",
                    "indian market", "indian stock", "indian equit", "gift nifty",
-                   "d-street", "market today", "market open", "market close"}
+                   "d-street", "market today", "market open", "market close",
+                   "nifty50", "nifty 50", "sensex", "broad market", "equity market"}
     is_index = any(t in search_terms for t in {"nifty", "sensex", "nsebank", "nsemdcp50"})
+
     FOREIGN_COMPANY_NOISE = {"amazon", "apple ", "google", "microsoft", "tesla",
-                              "nvidia", "meta ", "netflix", "moderna", "pfizer",
-                              "spacex", "openai"}
+                              "nvidia", "meta ", "netflix", "moderna", "spacex", "openai"}
     MACRO_RELEVANT = {"oil", "crude", "gold", "fed ", "federal reserve", "rate cut",
                       "rate hike", "inflation", "recession", "war", "iran", "russia",
                       "ukraine", "israel", "china", "us-india", "rupee", "dollar",
                       "opec", "sanctions", "tariff", "trade war", "gdp", "imf",
                       "world bank", "rbi", "sebi", "budget", "fiscal"}
 
-    def is_relevant(title: str) -> bool:
+    # Method B: stronger index relevance — require % move or specific index mention
+    INDEX_SPECIFIC = {"nifty", "sensex", "nifty50", "nifty 50", "^nsei", "^bsesn",
+                      "points", "market crash", "market rally", "market fall",
+                      "market rise", "market close", "market open", "d-street",
+                      "dalal street", "gift nifty", "indian stock market",
+                      "stock market today", "equity market"}
+
+    # Signals that indicate actual price movement reporting (not just stock tips)
+    MOVE_SIGNALS = {"%", "points", "pts", "falls", "rises", "gains", "loses",
+                    "crashes", "tanks", "surges", "rallies", "plunges", "jumps",
+                    "slides", "climbs", "drops", "declines", "advances",
+                    "week high", "week low", "month high", "month low",
+                    "support", "resistance", "opens at", "closes at"}
+
+    def is_relevant(title: str, description: str = "") -> bool:
+        # Methods B+C: check both title+description, require move signal for indices
+        combined_text = (title + " " + description).lower()
         t = title.lower()
         if is_index:
-            has_india_term  = any(term in t for term in search_terms | INDEX_NAMES)
-            has_macro       = any(term in t for term in MACRO_RELEVANT)
-            is_foreign_only = (any(noise in t for noise in FOREIGN_COMPANY_NOISE)
-                               and not has_macro and not has_india_term)
-            return (has_india_term or has_macro) and not is_foreign_only
-        return any(term in t for term in search_terms)
+            has_index_specific = any(term in combined_text for term in INDEX_SPECIFIC)
+            has_macro          = any(term in combined_text for term in MACRO_RELEVANT)
+            has_move           = any(sig in combined_text for sig in MOVE_SIGNALS)
+            is_foreign_only    = (any(noise in t for noise in FOREIGN_COMPANY_NOISE)
+                                  and not has_macro and not has_index_specific)
+            if is_foreign_only:
+                return False
+            # Must be about index/market AND contain a move signal OR be macro news
+            return (has_index_specific and has_move) or has_macro
+        return any(term in combined_text for term in search_terms)
 
     indian_sources = {"Economic Times", "MoneyControl", "LiveMint", "Reuters"}
 
@@ -471,25 +555,28 @@ def fetch_news(company_name: str) -> pd.DataFrame:
                 for art in parse_rss2json(url, source):
                     title = art.get("title", "").strip()
                     if title:
-                        art["keyword"]  = keyword
-                        art["relevant"] = is_relevant(title)
+                        art["keyword"]     = keyword
+                        art["description"] = art.get("description", "")
+                        art["relevant"]    = is_relevant(title, art.get("description",""))
                         articles.append(art)
             else:
                 feed = feedparser.parse(url)
                 for entry in feed.entries[:15]:
                     title = entry.get("title", "").strip()
+                    desc  = entry.get("summary", entry.get("description", ""))
                     display_source = source
                     if " - " in title:
                         title, display_source = title.rsplit(" - ", 1)
                         title = title.strip()
                     if title:
                         articles.append({
-                            "source":    display_source,
-                            "title":     title,
-                            "keyword":   keyword,
-                            "relevant":  is_relevant(title),
-                            "published": entry.get("published", entry.get("updated", ""))[:25],
-                            "link":      entry.get("link", "#"),
+                            "source":      display_source,
+                            "title":       title,
+                            "description": desc,
+                            "keyword":     keyword,
+                            "relevant":    is_relevant(title, desc),
+                            "published":   entry.get("published", entry.get("updated", ""))[:25],
+                            "link":        entry.get("link", "#"),
                         })
         except Exception:
             pass
@@ -517,39 +604,95 @@ def fetch_news(company_name: str) -> pd.DataFrame:
             deduped.append(art)
 
     df = pd.DataFrame(deduped)
+    if "description" not in df.columns:
+        df["description"] = ""
+    df["description"] = df["description"].fillna("")
+
     relevant = df[df["relevant"] == True]
     df = relevant if len(relevant) >= 5 else df
     df = df.drop(columns=["relevant"], errors="ignore").reset_index(drop=True)
     df["published_dt"] = pd.to_datetime(df["published"], errors="coerce")
     df = df.sort_values("published_dt", ascending=False).reset_index(drop=True)
 
-    # ── Sentiment scoring ─────────────────────────────────────────────────────
+    # ── Method C: score title + description together ──────────────────────────
+    def score_text(row):
+        title = row["title"]
+        desc  = str(row["description"])[:300]   # cap description at 300 chars
+        # Weight: title 70%, description 30%
+        full_text = title + " " + desc if desc.strip() else title
+        return full_text
+
+    df["score_text"] = df.apply(score_text, axis=1)
+
+    # ── Base model scores ─────────────────────────────────────────────────────
+    df["vader_score"]    = df["score_text"].apply(vader_score)
+    df["textblob_score"] = df["score_text"].apply(textblob_score)
+    df["combined_score"] = ((df["vader_score"] + df["textblob_score"]) / 2).round(4)
+
+    # ── Method A: apply finance keyword boost ────────────────────────────────
+    df["boost"]          = df["score_text"].apply(finance_boost)
+    df["combined_score"] = (df["combined_score"] + df["boost"]).clip(-1.0, 1.0).round(4)
+
+    # ── Try DistilRoBERTa ─────────────────────────────────────────────────────
     titles = df["title"].tolist()
-
-    # Always compute VADER and TextBlob (free, no API needed)
-    df["vader_score"]    = df["title"].apply(vader_score)
-    df["textblob_score"] = df["title"].apply(textblob_score)
-    df["combined_score"] = df["title"].apply(combined_score)
-
-    # Try FinBERT on top
     finbert_results, finbert_error = finbert_scores(titles)
 
     if finbert_results and len(finbert_results) == len(titles):
         df["finbert_score"] = [r["compound"] if r else df["combined_score"].iloc[i]
                                for i, r in enumerate(finbert_results)]
-        # Final compound = average of all three
-        df["compound"] = df[["vader_score","textblob_score","finbert_score"]].mean(axis=1).round(4)
+        # Apply boost to distilroberta score too
+        df["finbert_score"] = (df["finbert_score"] + df["boost"]).clip(-1.0, 1.0).round(4)
+        df["compound"]    = df[["vader_score","textblob_score","finbert_score"]].mean(axis=1).round(4)
+        # boost already baked into individual scores — no double-add needed
         df["scorer"]      = "DistilRoBERTa + VADER + TextBlob"
         df["scorer_note"] = ""
     else:
         df["finbert_score"] = None
-        # Final compound = average of VADER + TextBlob
-        df["compound"]    = df["combined_score"]
-        df["scorer"]      = "VADER + TextBlob"
-        df["scorer_note"] = finbert_error
+        df["compound"]      = df["combined_score"]
+        df["scorer"]        = "VADER + TextBlob"
+        df["scorer_note"]   = finbert_error
+
+    # ── Method D: recency weighting ───────────────────────────────────────────
+    now = pd.Timestamp.now(tz="UTC").tz_localize(None)
+    df["published_dt_safe"] = df["published_dt"].dt.tz_localize(None) if df["published_dt"].dt.tz is not None else df["published_dt"]
+
+    def recency_weight(pub_dt):
+        if pd.isna(pub_dt):
+            return 0.5
+        hours_ago = max((now - pub_dt).total_seconds() / 3600, 0)
+        if hours_ago <= 2:   return 1.0   # last 2h — full weight
+        if hours_ago <= 6:   return 0.85  # 2-6h
+        if hours_ago <= 12:  return 0.70  # 6-12h
+        if hours_ago <= 24:  return 0.55  # 12-24h
+        return 0.40                        # older
+
+    df["recency_weight"] = df["published_dt"].apply(recency_weight)
+    # Weighted compound = pull score toward 0 for older articles
+    df["compound"] = (df["compound"] * df["recency_weight"]).round(4)
 
     df["label"] = df["compound"].apply(label_from_score)
+
+    # ── Method E: momentum detection ─────────────────────────────────────────
+    # Compare today's avg sentiment to yesterday's — flag if sharp drop/rise
+    df["date"] = df["published_dt"].dt.date
+    today = pd.Timestamp.now().date()
+    yesterday = (pd.Timestamp.now() - pd.Timedelta(days=1)).date()
+
+    today_scores = df[df["date"] == today]["compound"]
+    yest_scores  = df[df["date"] == yesterday]["compound"]
+
+    momentum_signal = None
+    if len(today_scores) >= 2 and len(yest_scores) >= 2:
+        delta = today_scores.mean() - yest_scores.mean()
+        if delta <= -0.10:
+            momentum_signal = "bearish"    # sharp drop vs yesterday
+        elif delta >= 0.10:
+            momentum_signal = "bullish"    # sharp rise vs yesterday
+
+    df["momentum_signal"] = momentum_signal  # same value for all rows, used in UI
+
     df["published_fmt"] = df["published_dt"].dt.strftime("%-d %B %Y, %I:%M %p").fillna(df["published"])
+    df = df.drop(columns=["score_text","boost","published_dt_safe","date"], errors="ignore")
     return df
 
 
@@ -1108,6 +1251,26 @@ with c5:
     st.markdown(f"<div class='kpi-card'><div class='kpi-value'>{len(news_df) if not news_df.empty else 0}</div><div class='kpi-label'>Articles</div></div>", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
+
+# ── Method E: Momentum signal banner ─────────────────────────────────────────
+if not news_df.empty and "momentum_signal" in news_df.columns:
+    sig = news_df["momentum_signal"].iloc[0]
+    if sig == "bearish":
+        st.markdown(
+            "<div style='background:#2a0010;border:1px solid #ff4b6e;border-radius:10px;"
+            "padding:10px 18px;margin-bottom:12px;color:#ff4b6e;font-size:0.9rem'>"
+            "📉 <b>Momentum Alert:</b> Today's sentiment is significantly more negative "
+            "than yesterday — bearish shift detected in news flow.</div>",
+            unsafe_allow_html=True
+        )
+    elif sig == "bullish":
+        st.markdown(
+            "<div style='background:#002a1f;border:1px solid #00d4aa;border-radius:10px;"
+            "padding:10px 18px;margin-bottom:12px;color:#00d4aa;font-size:0.9rem'>"
+            "📈 <b>Momentum Alert:</b> Today's sentiment is significantly more positive "
+            "than yesterday — bullish shift detected in news flow.</div>",
+            unsafe_allow_html=True
+        )
 
 # ── Price Chart ───────────────────────────────────────────────────────────────
 st.markdown("### 📈 Price Chart + Indicators")
