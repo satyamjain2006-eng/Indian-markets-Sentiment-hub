@@ -343,40 +343,46 @@ def get_news_keyword(company_name: str) -> str:
 HF_API_KEY = st.secrets.get("HF_API_KEY", "")
 
 def finbert_scores(texts: list[str]) -> tuple[list[dict], str]:
-    """Score texts using HuggingFace InferenceClient (FinBERT).
-    Returns (results, error_msg). Falls back to VADER on any error."""
+    """Score texts via HuggingFace FinBERT API with a hard 8s timeout.
+    Returns (results, error_msg)."""
     if not HF_API_KEY:
         return [], "No API key set"
     try:
-        from huggingface_hub import InferenceClient
-        client = InferenceClient(token=HF_API_KEY)
+        headers = {"Authorization": f"Bearer {HF_API_KEY}"}
         all_parsed = []
-        BATCH = 8
-        for i in range(0, len(texts), BATCH):
-            batch = texts[i:i+BATCH]
-            results = client.text_classification(
-                batch,
-                model="ProsusAI/finbert",
+        for i in range(0, len(texts), 8):
+            batch = texts[i:i+8]
+            resp = requests.post(
+                "https://api-inference.huggingface.co/models/ProsusAI/finbert",
+                headers=headers,
+                json={"inputs": batch, "options": {"wait_for_model": False}},
+                timeout=8,
             )
-            # results is list of ClassificationOutput or list of list
-            for item in results:
+            if resp.status_code == 503:
+                return [], "Model loading — will be ready next refresh"
+            if resp.status_code == 401: return [], "Invalid API key (401)"
+            if resp.status_code == 403: return [], "Token lacks Inference permission (403)"
+            if resp.status_code != 200: return [], f"HTTP {resp.status_code}"
+            data = resp.json()
+            if isinstance(data, dict) and "error" in data:
+                return [], data["error"]
+            for item in data:
                 try:
-                    # item may be a single ClassificationOutput or a list
                     if isinstance(item, list):
-                        best = max(item, key=lambda x: x.score)
-                        label = best.label.capitalize()
-                        score = best.score
+                        best = max(item, key=lambda x: x["score"])
                     else:
-                        label = item.label.capitalize()
-                        score = item.score
-                    if label not in ("Positive", "Negative", "Neutral"):
+                        best = item
+                    label = best["label"].strip().capitalize()
+                    if label not in ("Positive","Negative","Neutral"):
                         label = label.title()
-                    compound = score if label == "Positive" else (
-                               -score if label == "Negative" else 0.0)
-                    all_parsed.append({"label": label, "compound": round(compound, 4)})
+                    score = best["score"]
+                    compound = score if label=="Positive" else (-score if label=="Negative" else 0.0)
+                    all_parsed.append({"label": label, "compound": round(compound,4)})
                 except Exception:
                     all_parsed.append(None)
         return all_parsed, ""
+    except requests.exceptions.Timeout:
+        return [], "Timeout (8s) — model may be cold, retrying next refresh"
     except Exception as e:
         return [], str(e)
 
