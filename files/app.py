@@ -343,49 +343,68 @@ def get_news_keyword(company_name: str) -> str:
 HF_API_URL = "https://api-inference.huggingface.co/pipeline/text-classification/ProsusAI/finbert"
 HF_API_KEY = st.secrets.get("HF_API_KEY", "")
 
+def _parse_finbert_item(item) -> dict | None:
+    """Parse a single FinBERT result item into {label, compound}."""
+    try:
+        if isinstance(item, list):
+            best  = max(item, key=lambda x: x["score"])
+        elif isinstance(item, dict):
+            best  = item
+        else:
+            return None
+        label = best["label"].strip().capitalize()
+        if label not in ("Positive", "Negative", "Neutral"):
+            # Some models return POSITIVE/NEGATIVE/NEUTRAL
+            label = label.title()
+        compound = best["score"] if label == "Positive" else (
+                   -best["score"] if label == "Negative" else 0.0)
+        return {"label": label, "compound": round(compound, 4)}
+    except Exception:
+        return None
+
+
 def finbert_scores(texts: list[str]) -> tuple[list[dict], str]:
-    """Score a batch of texts via HuggingFace FinBERT API.
-    Returns (results, error_msg). Falls back to VADER on any error."""
+    """Score texts via HuggingFace FinBERT API in small batches.
+    Returns (results, error_msg)."""
     if not HF_API_KEY:
         return [], "No API key set"
+    headers = {"Authorization": f"Bearer {HF_API_KEY}"}
+    all_parsed = []
+    BATCH = 10   # small batches to avoid timeout
     try:
-        headers = {"Authorization": f"Bearer {HF_API_KEY}"}
-        # Send in batches of 20 to avoid payload limits
-        all_parsed = []
-        for i in range(0, len(texts), 20):
-            batch = texts[i:i+20]
-            resp = requests.post(
-                HF_API_URL,
-                headers=headers,
-                json={"inputs": batch, "options": {"wait_for_model": True}},
-                timeout=20
-            )
-            if resp.status_code == 410:
-                return [], "API endpoint moved (410) — URL updated"
-            if resp.status_code == 503:
-                return [], "Model loading (503) — will retry next refresh"
-            if resp.status_code == 401:
-                return [], "Invalid API key (401)"
-            if resp.status_code == 403:
-                return [], "Token missing Inference permissions (403)"
-            if resp.status_code != 200:
-                return [], f"API error {resp.status_code}"
-            results = resp.json()
-            if isinstance(results, dict) and "error" in results:
-                return [], f"API error: {results['error']}"
-            for item in results:
-                if isinstance(item, list):
-                    best  = max(item, key=lambda x: x["score"])
-                    label = best["label"].capitalize()
-                    if label == "Positive":
-                        compound = best["score"]
-                    elif label == "Negative":
-                        compound = -best["score"]
-                    else:
-                        compound = 0.0
-                    all_parsed.append({"label": label, "compound": round(compound, 4)})
-                else:
-                    all_parsed.append(None)
+        for i in range(0, len(texts), BATCH):
+            batch = texts[i:i+BATCH]
+            for attempt in range(2):   # 1 retry on 503
+                try:
+                    resp = requests.post(
+                        HF_API_URL,
+                        headers=headers,
+                        json={"inputs": batch,
+                              "options": {"wait_for_model": True}},
+                        timeout=30
+                    )
+                except requests.exceptions.Timeout:
+                    return [], "Request timed out — model may be cold"
+                if resp.status_code == 503 and attempt == 0:
+                    import time; time.sleep(3)
+                    continue
+                if resp.status_code == 401:
+                    return [], "Invalid API key (401)"
+                if resp.status_code == 403:
+                    return [], "Token lacks Inference permissions (403)"
+                if resp.status_code == 410:
+                    return [], "Endpoint gone (410)"
+                if resp.status_code == 503:
+                    return [], "Model loading (503) — retry in 60s"
+                if resp.status_code != 200:
+                    return [], f"HTTP {resp.status_code}"
+                data = resp.json()
+                if isinstance(data, dict) and "error" in data:
+                    return [], data["error"]
+                # data is list of results, one per input
+                for item in data:
+                    all_parsed.append(_parse_finbert_item(item))
+                break
         return all_parsed, ""
     except Exception as e:
         return [], str(e)
