@@ -1178,9 +1178,11 @@ news_keyword = get_news_keyword(primary_name)
 scorer_label = news_df["scorer"].iloc[0] if not news_df.empty and "scorer" in news_df.columns else "VADER"
 scorer_note  = news_df["scorer_note"].iloc[0] if not news_df.empty and "scorer_note" in news_df.columns else ""
 scorer_color = "#00d4aa" if scorer_label == "FinBERT" else "#ffd166"
-scorer_badge = f"<span style='font-size:0.72rem;background:#1a2035;border:1px solid {scorer_color};color:{scorer_color};padding:2px 8px;border-radius:20px;margin-left:8px'>{scorer_label}{' ⚠' if scorer_note else ''}</span>"
+scorer_badge = f"<span style='font-size:0.72rem;background:#1a2035;border:1px solid {scorer_color};color:{scorer_color};padding:2px 8px;border-radius:20px;margin-left:8px'>{scorer_label}</span>"
 st.markdown(f"### 🗞️ Latest News &nbsp;<span style='font-size:0.8rem;color:#5c7cfa'>searching: '{news_keyword}'</span>{scorer_badge}",
             unsafe_allow_html=True)
+if scorer_note:
+    st.error(f"FinBERT error: {scorer_note}")
 if not news_df.empty:
     filt = st.radio("Filter", ["All","Positive","Negative","Neutral"],
                     horizontal=True, label_visibility="collapsed")
