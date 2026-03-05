@@ -11,8 +11,19 @@ import io
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
+import re as _re
 import warnings
 warnings.filterwarnings("ignore")
+
+def _strip_html(text: str) -> str:
+    """Remove HTML tags and decode common entities."""
+    if not text:
+        return ""
+    text = _re.sub(r"<[^>]+>", " ", text)
+    text = text.replace("&amp;","&").replace("&lt;","<").replace("&gt;",">")
+    text = text.replace("&nbsp;"," ").replace("&quot;",'"').replace("&#39;","'")
+    text = " ".join(text.split())
+    return text
 
 # ── Icon loading ──────────────────────────────────────────────────────────────
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -327,7 +338,7 @@ def get_rss_urls(keyword: str, symbol: str, asset_type: str = "stock") -> dict:
 
 def parse_rss2json(url: str, source_name: str) -> list:
     try:
-        resp = requests.get(url, timeout=8)
+        resp = requests.get(url, timeout=4)
         data = resp.json()
         if data.get("status") != "ok":
             return []
@@ -338,7 +349,7 @@ def parse_rss2json(url: str, source_name: str) -> list:
                 articles.append({
                     "source":      source_name,
                     "title":       title,
-                    "description": item.get("description", item.get("content", ""))[:300],
+                    "description": item.get("description", item.get("content", ""))[:800],
                     "published":   item.get("pubDate", "")[:25],
                     "link":        item.get("link", "#"),
                 })
@@ -399,6 +410,60 @@ _COMMODITY_ASSETS = {"Gold","Silver","Crude Oil","Natural Gas","Copper","Alumini
 _CRYPTO_ASSETS    = {"Bitcoin","Ethereum","BNB","Solana","XRP","Cardano",
                      "Dogecoin","Avalanche","Polkadot","Chainlink"}
 
+# ── Entity disambiguation — prevents cross-contamination within conglomerates ─
+# Each entry: company_name → set of REQUIRED terms (at least one must appear)
+# AND optional EXCLUDE terms (if only these appear without required, reject)
+_ENTITY_REQUIRED = {
+    # Tata group — differentiate subsidiaries
+    "Tata Consultancy Services":  {"tcs","tata consultancy","it services","software"},
+    "Tata Motors":                {"tata motors","tatamotors","jaguar","jlr","ev","electric vehicle","passenger vehicle","commercial vehicle"},
+    "Tata Steel":                 {"tata steel","tatasteel","steel","metal","iron ore"},
+    "Tata Power":                 {"tata power","tatapower","power","energy","solar","renewable"},
+    "Tata Consumer Products":     {"tata consumer","tataconsum","tea","coffee","starbucks","food"},
+    "Tata Communications":        {"tata communications","tatacomm","telecom","network","data center"},
+    "Tata Chemicals":             {"tata chemicals","tatachem","chemical","soda ash","fertiliser"},
+    # Adani group
+    "Adani Enterprises":          {"adani enterprises","adanient","airport","defence","mining","solar"},
+    "Adani Ports And Special Economic Zone": {"adani ports","adaniports","port","logistics","shipping"},
+    "Adani Power":                {"adani power","adanipower","thermal","power plant","electricity"},
+    "Adani Green Energy":         {"adani green","adanigreen","solar","renewable","wind"},
+    "Adani Total Gas":            {"adani gas","adanitotalgas","cng","png","gas distribution"},
+    # Mahindra group
+    "Mahindra & Mahindra":        {"mahindra","m&m","suv","tractor","farm","xuv","scorpio"},
+    "Mahindra & Mahindra Financial Services": {"mahindra finance","m&mfin","nbfc","loan","vehicle finance"},
+    # HDFC group
+    "HDFC Bank":                  {"hdfc bank","hdfcbank","banking","loan","deposit","credit card"},
+    "HDFC Life Insurance":        {"hdfc life","hdfclife","insurance","premium","policy"},
+    "HDFC Asset Management":      {"hdfc amc","hdfcamc","mutual fund","aum","fund"},
+    # Bajaj group
+    "Bajaj Finance":              {"bajaj finance","bajajfinance","nbfc","emi","lending","consumer loan"},
+    "Bajaj Auto":                 {"bajaj auto","bajajauto","motorcycle","two wheeler","chetak","pulsar"},
+    "Bajaj Finserv":              {"bajaj finserv","bajajfinsv","insurance","financial services"},
+    # L&T group
+    "Larsen & Toubro":            {"l&t","larsen","infrastructure","construction","order book","engineering"},
+    "L&T Technology Services":    {"ltts","l&t technology","engineering services","r&d"},
+    # Reliance group
+    "Reliance Industries":        {"reliance","ril","jio","retail","petrochemical","refinery","oil to chemical"},
+    "Jio Financial Services":     {"jio financial","jiofinance","jio finance","fintech","lending"},
+}
+
+# Minimum article count before applying entity filter
+# If fewer articles than this pass the filter, fall back to broader matching
+_ENTITY_MIN_ARTICLES = 5
+
+def apply_entity_filter(df: pd.DataFrame, company_name: str) -> pd.DataFrame:
+    """Filter articles to only those mentioning entity-specific terms.
+    Falls back to full df if filtered result has fewer than _ENTITY_MIN_ARTICLES."""
+    if company_name not in _ENTITY_REQUIRED:
+        return df   # no disambiguation needed
+    required_terms = _ENTITY_REQUIRED[company_name]
+    def matches(row):
+        text = (row.get("title","") + " " + row.get("description","")).lower()
+        return any(term in text for term in required_terms)
+    filtered = df[df.apply(matches, axis=1)]
+    # Fall back if too few articles pass
+    return filtered if len(filtered) >= _ENTITY_MIN_ARTICLES else df
+
 def get_news_keyword(company_name: str) -> str:
     if company_name in NEWS_KEYWORDS:
         return NEWS_KEYWORDS[company_name]
@@ -435,7 +500,7 @@ def finbert_scores(texts: list) -> tuple:
                 _DISTILROBERTA_URL,
                 headers={**headers, "x-wait-for-model": "true"},
                 json={"inputs": batch},
-                timeout=25,
+                timeout=6,
             )
             if resp.status_code in (503, 504):
                 return [], "Model warming up"
@@ -710,7 +775,8 @@ def fetch_news(company_name: str) -> pd.DataFrame:
     with ThreadPoolExecutor(max_workers=7) as executor:
         futures = {executor.submit(fetch_source, src, url): src
                    for src, url in rss_urls.items()}
-        for future in as_completed(futures):
+        # Hard 6s wall-clock deadline — don't wait for stragglers
+        for future in as_completed(futures, timeout=6):
             try:
                 all_articles.extend(future.result())
             except Exception:
@@ -738,10 +804,14 @@ def fetch_news(company_name: str) -> pd.DataFrame:
     df["published_dt"] = pd.to_datetime(df["published"], errors="coerce")
     df = df.sort_values("published_dt", ascending=False).reset_index(drop=True)
 
-    # ── Method C: build score_text (title + first 200 chars of description) ────
-    desc_trimmed     = df["description"].str[:200]
-    df["score_text"] = df["title"] + " " + desc_trimmed.where(desc_trimmed.str.strip() != "", "")
-    df["score_text"] = df["score_text"].str.strip()
+    # ── Entity disambiguation — filter cross-conglomerate noise ──────────────
+    df = apply_entity_filter(df, company_name)
+
+    # ── Method C: build score_text (title + 800 chars of HTML-stripped description)
+    df["description"] = df["description"].fillna("").apply(_strip_html)
+    desc_trimmed      = df["description"].str[:800]
+    df["score_text"]  = df["title"] + " " + desc_trimmed.where(desc_trimmed.str.strip() != "", "")
+    df["score_text"]  = df["score_text"].str.strip()
 
     # ── Base model scores (vectorised where possible) ─────────────────────────
     df["vader_score"]    = df["score_text"].apply(vader_score)
@@ -753,9 +823,19 @@ def fetch_news(company_name: str) -> pd.DataFrame:
     df["textblob_score"] = (df["textblob_score"] + df["boost"]).clip(-1.0, 1.0).round(4)
     df["combined_score"] = ((df["vader_score"] + df["textblob_score"]) / 2).round(4)
 
-    # ── Try DistilRoBERTa ─────────────────────────────────────────────────────
+    # ── Try DistilRoBERTa — skip if it failed in the last 5 minutes ─────────
     titles = df["title"].tolist()
-    finbert_results, finbert_error = finbert_scores(titles)
+    _last_fail_key = "_distilroberta_last_fail"
+    _now_ts = pd.Timestamp.now().timestamp()
+    _last_fail = st.session_state.get(_last_fail_key, 0)
+    _skip_distil = (_now_ts - _last_fail) < 300   # skip for 5 min after failure
+
+    if _skip_distil:
+        finbert_results, finbert_error = [], "skipped (cooling down)"
+    else:
+        finbert_results, finbert_error = finbert_scores(titles)
+        if not finbert_results:
+            st.session_state[_last_fail_key] = _now_ts   # record failure time
 
     if finbert_results and len(finbert_results) == len(titles):
         df["finbert_score"] = [
