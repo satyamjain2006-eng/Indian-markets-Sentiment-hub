@@ -380,6 +380,23 @@ NEWS_KEYWORDS = {
     "Pidilite Industries":"Pidilite","InterGlobe Aviation":"IndiGo",
     "Life Insurance Corporation Of India":"LIC",
     "Power Grid Corporation Of India":"Power Grid",
+    # ── Commonly confused companies — explicit keywords ───────────────────────
+    "Ambuja Cements Limited":     "Ambuja Cements",
+    "Acc Limited":                "ACC Cement",
+    "Shree Cement Limited":       "Shree Cement",
+    "Ultratech Cement Limited":   "UltraTech Cement",
+    "Grasim Industries Limited":  "Grasim Industries",
+    "Sbi Cards And Payment Services Limited": "SBI Card",
+    "Sbi Life Insurance Company Limited":     "SBI Life",
+    "Icici Bank Limited":         "ICICI Bank",
+    "Icici Prudential Life Insurance Company Limited": "ICICI Prudential",
+    "Icici Lombard General Insurance Company Limited": "ICICI Lombard",
+    "Oil India Limited":          "Oil India",
+    "Hindustan Petroleum Corporation": "HPCL",
+    "Hcl Technologies Limited":   "HCL Tech",
+    "Infosys Limited":            "Infosys",
+    "Wipro Limited":              "Wipro IT",
+    "Ntpc Limited":               "NTPC Power",
     # ── MCX Commodities ───────────────────────────────────────────────────────
     "Gold":"gold price MCX",
     "Silver":"silver price MCX",
@@ -445,6 +462,45 @@ _ENTITY_REQUIRED = {
     # Reliance group
     "Reliance Industries":        {"reliance","ril","jio","retail","petrochemical","refinery","oil to chemical"},
     "Jio Financial Services":     {"jio financial","jiofinance","jio finance","fintech","lending"},
+    # Ambuja — cement company vs Gujarat Ambuja Exports (completely different)
+    "Ambuja Cements Limited":     {"ambuja cements","ambujacem","cement","clinker","ultratech","shree cement","acc"},
+    # ACC — cement, not to be confused with other ACC abbreviations
+    "Acc Limited":                {"acc cement","acc ltd","acc limited","cement","clinker","ready mix"},
+    # Shree Cement
+    "Shree Cement Limited":       {"shree cement","shreceml","cement"},
+    # Grasim — cement + chemicals, not just VSF
+    "Grasim Industries Limited":  {"grasim","grasiminds","cement","vsf","chemical","aditya birla"},
+    # Ultratech
+    "Ultratech Cement Limited":   {"ultratech","ultracemco","cement","ready mix","clinker"},
+    # SBI vs SBI Cards vs SBI Life
+    "State Bank Of India":        {"sbi","state bank","sbiin","public sector bank","psu bank"},
+    "Sbi Cards And Payment Services Limited": {"sbi card","sbicard","credit card","payment"},
+    "Sbi Life Insurance Company Limited":     {"sbi life","sbilife","insurance","premium","policy"},
+    # ICICI group
+    "Icici Bank Limited":         {"icici bank","icicibank","banking","loan","deposit"},
+    "Icici Prudential Life Insurance Company Limited": {"icici prudential","icicipruli","life insurance"},
+    "Icici Lombard General Insurance Company Limited": {"icici lombard","icicigi","general insurance"},
+    # Kotak group
+    "Kotak Mahindra Bank Limited": {"kotak","kotakbank","banking","loan","deposit"},
+    "Kotak Mahindra Asset Management": {"kotak amc","kotak mutual","mutual fund"},
+    # Wipro vs Wipro Consumer
+    "Wipro Limited":              {"wipro","it services","software","technology","digital"},
+    # Infosys
+    "Infosys Limited":            {"infosys","infy","it services","software","technology"},
+    # HCL Tech vs HCL Infosystems
+    "Hcl Technologies Limited":   {"hcl tech","hcltech","it services","software","technology"},
+    # Axis Bank
+    "Axis Bank Limited":          {"axis bank","axisbank","banking","loan","deposit"},
+    # Power sector confusion
+    "Ntpc Limited":               {"ntpc","thermal","power generation","electricity","coal"},
+    "Power Grid Corporation Of India": {"power grid","powergrid","transmission","electricity grid"},
+    "Adani Power":                {"adani power","adanipower","thermal power","power plant"},
+    # Oil sector
+    "Oil And Natural Gas Corporation": {"ongc","oil and natural gas","upstream","exploration","crude"},
+    "Oil India Limited":          {"oil india","oilindia","upstream","exploration","assam"},
+    "Indian Oil Corporation":     {"indian oil","iocl","refinery","fuel","petrol pump","pipeline"},
+    "Bharat Petroleum Corporation": {"bpcl","bharat petroleum","refinery","fuel","petrol pump"},
+    "Hindustan Petroleum Corporation": {"hpcl","hindustan petroleum","refinery","fuel"},
 }
 
 # Minimum article count before applying entity filter
@@ -732,8 +788,9 @@ def fetch_news(company_name: str) -> pd.DataFrame:
             has_move  = any(sig in comb for sig in MOVE_SIGNALS)
             return has_index and has_move
 
-        # Stock — match on any search term (keyword, symbol, name words)
-        return any(term in comb for term in search_terms)
+        # Stock — title must contain at least one search term
+        # description alone is not enough to qualify an article
+        return any(term in t for term in search_terms)
 
     indian_sources = {"Economic Times", "MoneyControl", "LiveMint", "Reuters"}
 
