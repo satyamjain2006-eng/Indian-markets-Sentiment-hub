@@ -350,7 +350,7 @@ def parse_rss2json(url: str, source_name: str) -> list:
                     "source":      source_name,
                     "title":       title,
                     "description": item.get("description", item.get("content", ""))[:800],
-                    "published":   item.get("pubDate", "")[:25],
+                    "published":   item.get("pubDate", item.get("updated", "")),
                     "link":        item.get("link", "#"),
                 })
         return articles
@@ -1137,7 +1137,7 @@ def fetch_news(company_name: str) -> pd.DataFrame:
                             "description": desc,
                             "keyword":     keyword,
                             "relevant":    is_relevant(title, desc),
-                            "published":   entry.get("published", entry.get("updated", ""))[:25],
+                            "published":   entry.get("published", entry.get("updated", "")),
                             "link":        entry.get("link", "#"),
                         })
         except Exception:
@@ -1174,7 +1174,22 @@ def fetch_news(company_name: str) -> pd.DataFrame:
     relevant = df[df["relevant"] == True]
     df = relevant if len(relevant) >= 5 else df
     df = df.drop(columns=["relevant"], errors="ignore").reset_index(drop=True)
-    df["published_dt"] = pd.to_datetime(df["published"], errors="coerce")
+    def _parse_date_robust(s):
+        """Parse RSS date strings robustly — handles +0530, GMT, Z, ISO 8601."""
+        if not s or not isinstance(s, str):
+            return pd.NaT
+        try:
+            from dateutil import parser as dparser
+            dt = dparser.parse(s, fuzzy=True)
+            # Convert to UTC then strip tz for consistent comparison
+            if dt.tzinfo is not None:
+                dt = dt.utctimetuple()
+                return pd.Timestamp(*dt[:6])
+            return pd.Timestamp(dt)
+        except Exception:
+            return pd.NaT
+
+    df["published_dt"] = df["published"].apply(_parse_date_robust)
     df = df.sort_values("published_dt", ascending=False).reset_index(drop=True)
 
     # ── Entity disambiguation — filter cross-conglomerate noise ──────────────
