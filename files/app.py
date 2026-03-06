@@ -1714,37 +1714,51 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
         st.plotly_chart(fig_ca, use_container_width=True)
 
         try:
-            merged = pd.merge(
-                ca_df_a[["Date","Close"]].rename(columns={"Close":"A"}),
-                ca_df_b[["Date","Close"]].rename(columns={"Close":"B"}),
-                on="Date", how="inner"
-            )
-            if len(merged) > 5:
-                corr   = merged["A"].corr(merged["B"])
-                r2     = corr ** 2          # R² = Pearson r squared
+            def _to_returns(df, col, freq=None):
+                """Resample to freq if given, compute % returns, return clean series."""
+                d = df[["Date","Close"]].copy()
+                d["Date"] = pd.to_datetime(d["Date"])
+                d = d.sort_values("Date").set_index("Date")
+                if freq:
+                    d = d["Close"].resample(freq).last().dropna()
+                else:
+                    d = d["Close"].dropna()
+                returns = d.pct_change().dropna()
+                returns.name = col
+                return returns
+
+            def _render_stats(corr, r2, n_pts, period, is_lagged=False,
+                               lagged_corr=None, lagged_r2=None):
                 corr_label = (
-                    "Strong positive" if corr > 0.7 else
-                    "Moderate positive" if corr > 0.3 else
-                    "Weak / no" if corr > -0.3 else
+                    "Strong positive"   if corr > 0.7  else
+                    "Moderate positive" if corr > 0.3  else
+                    "Weak / no"         if corr > -0.3 else
                     "Moderate negative" if corr > -0.7 else "Strong negative"
-                )
-                # R² interpretation
-                r2_label = (
-                    "moves explain each other well" if r2 > 0.7 else
-                    "moderate shared movement"      if r2 > 0.4 else
-                    "little shared movement"        if r2 > 0.1 else
-                    "essentially independent"
                 )
                 corr_color = "#00d4aa" if corr > 0.3 else "#ff4b6e" if corr < -0.3 else "#ffd166"
                 r2_color   = "#00d4aa" if r2 > 0.4 else "#ffd166"
 
+                # Warning for short periods
+                warning_html = ""
+                if period in ("1d", "5d"):
+                    pts_label = "30-min buckets" if period == "1d" else "daily returns"
+                    warning_html = (
+                        f"<div style='background:#1a1a2e;border:1px solid #f59e0b;"
+                        f"border-radius:8px;padding:10px 14px;margin-bottom:14px;"
+                        f"font-size:0.80rem;color:#f59e0b;'>"
+                        f"⚠️ <b>Low confidence</b> — based on {n_pts} {pts_label}. "
+                        f"Pearson r is reliable only with 20+ points. "
+                        f"Use 1mo+ for statistical significance.</div>"
+                    )
+
                 stat_cols = st.columns(2)
                 with stat_cols[0]:
+                    lag_note = " (same-day)" if lagged_corr is not None else ""
                     st.markdown(
                         f"<div style='text-align:center;padding:14px;background:#131929;"
-                        f"border-radius:10px;border:1px solid #1e2640;margin-bottom:16px'>"
+                        f"border-radius:10px;border:1px solid #1e2640;margin-bottom:4px'>"
                         f"<span style='color:#6b7a99;font-size:0.78rem;text-transform:uppercase;"
-                        f"letter-spacing:0.8px'>Correlation (r)</span><br>"
+                        f"letter-spacing:0.8px'>Correlation (r){lag_note}</span><br>"
                         f"<span style='color:{corr_color};font-size:1.8rem;font-weight:700'>{corr:+.2f}</span><br>"
                         f"<span style='color:{corr_color};font-size:0.82rem'>{corr_label}</span>"
                         f"</div>", unsafe_allow_html=True
@@ -1752,14 +1766,105 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
                 with stat_cols[1]:
                     st.markdown(
                         f"<div style='text-align:center;padding:14px;background:#131929;"
-                        f"border-radius:10px;border:1px solid #1e2640;margin-bottom:16px'>"
+                        f"border-radius:10px;border:1px solid #1e2640;margin-bottom:4px'>"
                         f"<span style='color:#6b7a99;font-size:0.78rem;text-transform:uppercase;"
                         f"letter-spacing:0.8px'>R² (explained variance)</span><br>"
                         f"<span style='color:{r2_color};font-size:1.8rem;font-weight:700'>{r2:.2f}</span><br>"
                         f"<span style='color:{r2_color};font-size:0.82rem'>"
-                        f"{r2*100:.1f}% of {ca_name_b}'s variance explained by {ca_name_a}</span>"
+                        f"{r2*100:.1f}% of {ca_name_b}'s moves explained by {ca_name_a}</span>"
                         f"</div>", unsafe_allow_html=True
                     )
+
+                # Lagged correlation row for cross-market 5d
+                if lagged_corr is not None:
+                    lc_color = "#00d4aa" if lagged_corr > 0.3 else "#ff4b6e" if lagged_corr < -0.3 else "#ffd166"
+                    lr2_color = "#00d4aa" if lagged_r2 > 0.4 else "#ffd166"
+                    lag_cols = st.columns(2)
+                    with lag_cols[0]:
+                        st.markdown(
+                            f"<div style='text-align:center;padding:10px;background:#131929;"
+                            f"border-radius:10px;border:1px solid #1e2640;margin-bottom:4px'>"
+                            f"<span style='color:#6b7a99;font-size:0.75rem;text-transform:uppercase;"
+                            f"letter-spacing:0.8px'>Lagged r (A leads B by 1 day)</span><br>"
+                            f"<span style='color:{lc_color};font-size:1.5rem;font-weight:700'>{lagged_corr:+.2f}</span>"
+                            f"</div>", unsafe_allow_html=True
+                        )
+                    with lag_cols[1]:
+                        st.markdown(
+                            f"<div style='text-align:center;padding:10px;background:#131929;"
+                            f"border-radius:10px;border:1px solid #1e2640;margin-bottom:4px'>"
+                            f"<span style='color:#6b7a99;font-size:0.75rem;text-transform:uppercase;"
+                            f"letter-spacing:0.8px'>Lagged R²</span><br>"
+                            f"<span style='color:{lr2_color};font-size:1.5rem;font-weight:700'>{lagged_r2:.2f}</span>"
+                            f"</div>", unsafe_allow_html=True
+                        )
+                    st.caption("Lagged r: how well yesterday's Asset A returns predict today's Asset B returns.")
+
+                # Warning shown below stats
+                if warning_html:
+                    st.markdown(warning_html, unsafe_allow_html=True)
+
+            # ── 1d: resample both to 30-min buckets, correlate returns ────────
+            if period == "1d":
+                ret_a = _to_returns(ca_df_a, "A", freq="30min")
+                ret_b = _to_returns(ca_df_b, "B", freq="30min")
+                merged_ret = pd.concat([ret_a, ret_b], axis=1).dropna()
+                if len(merged_ret) >= 3:
+                    corr = merged_ret["A"].corr(merged_ret["B"])
+                    r2   = corr ** 2
+                    _render_stats(corr, r2, len(merged_ret), period)
+                else:
+                    st.markdown(
+                        "<div style='background:#131929;border:1px solid #f59e0b;"
+                        "border-radius:8px;padding:12px;font-size:0.82rem;color:#f59e0b;'>"
+                        "⚠️ Insufficient overlapping 1d data to compute correlation. "
+                        "This typically happens for cross-market pairs (e.g. Nifty vs S&P 500) "
+                        "that trade in different timezones with no overlapping hours.</div>",
+                        unsafe_allow_html=True
+                    )
+
+            # ── 5d: daily returns, same-day + 1-day lagged ────────────────────
+            elif period == "5d":
+                ret_a = _to_returns(ca_df_a, "A", freq="1D")
+                ret_b = _to_returns(ca_df_b, "B", freq="1D")
+                merged_ret = pd.concat([ret_a, ret_b], axis=1).dropna()
+                if len(merged_ret) >= 3:
+                    corr = merged_ret["A"].corr(merged_ret["B"])
+                    r2   = corr ** 2
+                    # Lagged: shift A back 1 day to see if A predicts B next day
+                    lagged = pd.concat(
+                        [ret_a.shift(1).rename("A_lag"), ret_b], axis=1
+                    ).dropna()
+                    if len(lagged) >= 3:
+                        lc = lagged["A_lag"].corr(lagged["B"])
+                        lr2 = lc ** 2
+                    else:
+                        lc = lr2 = None
+                    _render_stats(corr, r2, len(merged_ret), period,
+                                  lagged_corr=lc, lagged_r2=lr2)
+                else:
+                    st.markdown(
+                        "<div style='background:#131929;border:1px solid #f59e0b;"
+                        "border-radius:8px;padding:12px;font-size:0.82rem;color:#f59e0b;'>"
+                        "⚠️ Insufficient overlapping 5d data. Cross-market pairs with "
+                        "different trading calendars may have few matching dates.</div>",
+                        unsafe_allow_html=True
+                    )
+
+            # ── 1mo+: price-based correlation (existing reliable approach) ────
+            else:
+                def _prep(df, col):
+                    d = df[["Date","Close"]].rename(columns={"Close": col}).copy()
+                    d["Date"] = pd.to_datetime(d["Date"]).dt.normalize()
+                    d = d.drop_duplicates(subset=["Date"]).sort_values("Date")
+                    return d
+                merged = pd.merge(_prep(ca_df_a,"A"), _prep(ca_df_b,"B"),
+                                  on="Date", how="inner")
+                if len(merged) >= 10:
+                    corr = merged["A"].corr(merged["B"])
+                    r2   = corr ** 2
+                    _render_stats(corr, r2, len(merged), period)
+
         except Exception:
             pass
 
