@@ -2272,24 +2272,15 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
                 price_a = _to_clean_daily(ca_df_a, "A")
                 price_b = _to_clean_daily(ca_df_b, "B")
 
-                # Returns for correlation — measures day-to-day co-movement
-                ret_a = price_a.pct_change().dropna()
-                ret_b = price_b.pct_change().dropna()
-                merged_ret = pd.concat([ret_a, ret_b], axis=1, sort=True).dropna()
-
-                corr = merged_ret["A"].corr(merged_ret["B"]) if len(merged_ret) >= 3 else float("nan")
-                r2   = corr ** 2 if not (corr != corr) else 0.0  # nan check
-
                 import math
-                if len(merged_ret) >= 3 and not math.isnan(corr):
-                    _render_stats(corr, r2, len(merged_ret), period)
-                else:
-                    st.warning(
-                        f"Could not compute correlation. "
-                        f"price_a={len(price_a)} rows, price_b={len(price_b)} rows, "
-                        f"ret_a={len(ret_a)}, ret_b={len(ret_b)}, merged={len(merged_ret)}, "
-                        f"corr={'nan' if (not merged_ret.empty and math.isnan(corr)) else 'n/a (empty)'}"
-                    )
+
+                # Normalised price levels for all periods
+                # Chart and correlation use the same data — visually consistent
+                merged_price = pd.concat([price_a, price_b], axis=1, sort=True).dropna()
+                corr = merged_price["A"].corr(merged_price["B"]) if len(merged_price) >= 5 else float("nan")
+                r2   = corr ** 2 if not math.isnan(corr) else 0.0
+                if not math.isnan(corr):
+                    _render_stats(corr, r2, len(merged_price), period)
 
         except Exception as _corr_err:
             st.markdown(
