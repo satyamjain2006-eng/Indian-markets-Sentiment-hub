@@ -1191,7 +1191,31 @@ def fetch_news(company_name: str) -> pd.DataFrame:
     df["textblob_score"] = df["score_text"].apply(textblob_score)
 
     # ── Method A: context-aware keyword boost ────────────────────────────────
-    df["boost"] = finance_boost_series(df["score_text"], asset_type=asset_type)
+    # Strip company name words from boost_text before keyword matching.
+    # Prevents company names containing financial words (e.g. "Oil Tankers Ltd",
+    # "Tank Terminal", "Bear Creek", "Bullish Ventures") from triggering
+    # false keyword boosts. VADER/TextBlob still score on full text.
+    _company_words = set(keyword.lower().split()) if keyword else set()
+    # Also strip common suffixes that are never sentiment signals
+    _company_words |= {"ltd","limited","inc","corp","corporation","pvt",
+                        "private","public","industries","industry","holdings",
+                        "group","enterprises","solutions","services","technologies",
+                        "technology","energy","power","finance","financial",
+                        "capital","ventures","resources","infrastructure"}
+    def _strip_company_words(text: str) -> str:
+        if not _company_words:
+            return text
+        import re
+        t = text
+        for w in _company_words:
+            # Only strip if word appears as standalone word (not inside another word)
+            # e.g. strip "tank" from "Oil Tank Ltd" but not from "tankers quarterly"
+            if len(w) >= 4:   # skip very short words like "oil", "gas" etc
+                t = re.sub(r'' + re.escape(w) + r'', ' ', t, flags=re.IGNORECASE)
+        return t
+
+    boost_text = df["score_text"].apply(_strip_company_words)
+    df["boost"] = finance_boost_series(boost_text, asset_type=asset_type)
 
     if asset_type == "commodity":
         # VADER/TextBlob are unreliable for commodities — "war","conflict" are
