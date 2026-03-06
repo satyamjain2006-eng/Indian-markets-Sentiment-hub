@@ -1,6 +1,7 @@
 import streamlit as st
 import yfinance as yf
 import feedparser
+from dateutil import parser as _dateutil_parser
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -40,7 +41,7 @@ st.set_page_config(
 )
 
 from streamlit_autorefresh import st_autorefresh
-st_autorefresh(interval=60_000, limit=None, key="autorefresh")
+st_autorefresh(interval=300_000, limit=None, key="autorefresh")
 
 st.markdown("""
 <style>
@@ -225,7 +226,7 @@ COMPANY_LIST = [
 
 GITHUB_CSV_URL = "https://raw.githubusercontent.com/satyamjain2006-eng/Indian-markets-Sentiment-hub/main/files/EQUITY_L.csv"
 
-@st.cache_data(ttl=86400, show_spinner=False)
+@st.cache_data(ttl=86400, max_entries=1, show_spinner=False)
 def load_indian_companies() -> pd.DataFrame:
     if "YOUR_USERNAME" not in GITHUB_CSV_URL:
         try:
@@ -1013,7 +1014,7 @@ def badge_class(label):
     return {"Positive":"b-pos","Negative":"b-neg","Neutral":"b-neu"}.get(label,"")
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=300, max_entries=10, show_spinner=False)
 def fetch_news(company_name: str) -> pd.DataFrame:
     keyword  = get_news_keyword(company_name)
     symbol   = st.session_state.get("primary_symbol", "")
@@ -1179,8 +1180,7 @@ def fetch_news(company_name: str) -> pd.DataFrame:
         if not s or not isinstance(s, str):
             return pd.NaT
         try:
-            from dateutil import parser as dparser
-            dt = dparser.parse(s, fuzzy=True)
+            dt = _dateutil_parser.parse(s, fuzzy=True)
             # Convert to UTC then strip tz for consistent comparison
             if dt.tzinfo is not None:
                 dt = dt.utctimetuple()
@@ -1303,7 +1303,23 @@ def fetch_news(company_name: str) -> pd.DataFrame:
     df["compound"] = df["compound"].clip(-0.70, 0.70)
     df["label"] = df["compound"].apply(label_from_score)
     df["published_fmt"] = df["published_dt"].dt.strftime("%-d %B %Y, %I:%M %p").fillna(df["published"])
-    df = df.drop(columns=["score_text","boost","_date"], errors="ignore")
+    # ── Drop all intermediate columns before caching ─────────────────────────
+    # score_text: title+800char desc — large, only needed during scoring
+    # description: 800 chars raw text — large, not shown in UI
+    # boost: intermediate score adjustment — baked into vader/textblob already
+    # combined_score: same as compound after processing
+    # _date: temp column for momentum detection
+    # vader_score / textblob_score: kept — shown in news card meta (V: T:)
+    df = df.drop(columns=[
+        "score_text", "boost", "_date",
+        "combined_score", "description",
+    ], errors="ignore")
+
+    # Keep only columns the UI actually uses
+    keep = ["source","title","link","published","published_dt","published_fmt",
+            "label","compound","vader_score","textblob_score",
+            "recency_weight","momentum_signal","keyword"]
+    df = df[[c for c in keep if c in df.columns]]
     return df
 
 
@@ -1336,7 +1352,7 @@ def _yf_download_safe(ticker: str, **kwargs) -> pd.DataFrame:
         except Exception:
             return pd.DataFrame()
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=60, max_entries=20, show_spinner=False)
 def fetch_price(ticker: str, period: str) -> tuple:
     def _clean(df: pd.DataFrame, is_intraday: bool) -> pd.DataFrame:
         if isinstance(df.columns, pd.MultiIndex):
