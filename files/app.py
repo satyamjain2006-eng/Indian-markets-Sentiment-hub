@@ -289,6 +289,8 @@ def get_rss_urls(keyword: str, symbol: str, asset_type: str = "stock") -> dict:
             "Google News":         gn + enc(keyword) + "+share+price+NSE",
             "Google News (Q)":     gn + enc(keyword) + "+quarterly+results+India",
             "Google News (news)":  gn + enc(keyword) + "+stock+news+India",
+            "Google News (NSE2)":  gn + enc(keyword) + "+NSE+BSE+India",
+            "Google News (latest)":gn + enc(keyword) + "+latest+news",
         }
     elif asset_type == "index":
         urls = {
@@ -321,18 +323,30 @@ def get_rss_urls(keyword: str, symbol: str, asset_type: str = "stock") -> dict:
             "Google News": gn + enc(keyword),
         }
 
-    # ── Indian broadcast feeds — only useful for stocks/indices ───────────────
-    if asset_type in ("stock", "index"):
-        indian_feeds = {
-            "Economic Times": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
-            "MoneyControl":   "https://www.moneycontrol.com/rss/marketreports.xml",
-            "LiveMint":       "https://www.livemint.com/rss/markets",
-        }
-        for name, feed_url in indian_feeds.items():
-            urls[name] = proxy + feed_url
+    # ── Supplementary feeds — general feeds only for index/commodity/forex ──────
+    # Stocks: ONLY Google News company-specific URLs above — general feeds like
+    # ET Markets / MoneyControl flood results with irrelevant market news.
+    # Indices, commodities, forex: general feeds are appropriate since the topic
+    # IS the broad market / commodity / currency.
+    if asset_type == "index":
+        urls["Economic Times"] = proxy + "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms"
+        urls["MoneyControl"]   = proxy + "https://www.moneycontrol.com/rss/marketreports.xml"
+        urls["LiveMint"]       = proxy + "https://www.livemint.com/rss/markets"
+        urls["Reuters"]        = proxy + "https://feeds.reuters.com/reuters/businessNews"
 
-    # Reuters always included — covers commodities, forex, crypto well
-    urls["Reuters"] = proxy + "https://feeds.reuters.com/reuters/businessNews"
+    elif asset_type == "commodity":
+        # Commodity-specific Google News already added above
+        # Add Reuters for global commodity coverage
+        urls["Reuters"] = proxy + "https://feeds.reuters.com/reuters/businessNews"
+
+    elif asset_type == "forex":
+        urls["Reuters"] = proxy + "https://feeds.reuters.com/reuters/businessNews"
+
+    elif asset_type == "crypto":
+        # Google News already has 3 crypto-specific URLs — no general feeds needed
+        pass
+
+    # stock: no general feeds — Google News company-specific URLs are sufficient
 
     return urls
 
@@ -1200,23 +1214,21 @@ def fetch_news(company_name: str) -> pd.DataFrame:
     if len(relevant) >= 3:
         df = relevant
     elif len(relevant) > 0:
-        # Some relevant found — use them, top up with closest matches
-        # "closest" = articles from same fetch that at least mention India/market
-        india_terms = {"india","indian","nse","bse","sensex","nifty","sebi","rbi",
-                       "rupee","dalal","d-street","mcx","mumbai"}
-        semi_relevant = df[df["title"].str.lower().apply(
-            lambda x: any(t in x for t in india_terms)
-        )]
-        combined = pd.concat([relevant, semi_relevant]).drop_duplicates(subset=["title"])
-        df = combined.head(10) if len(combined) >= 3 else relevant
+        # Some relevant found — just use those, never pad with unrelated articles
+        df = relevant
     else:
-        # Zero relevant — filter to India-related articles only, block pure foreign news
-        india_terms = {"india","indian","nse","bse","sensex","nifty","sebi","rbi",
-                       "rupee","dalal","d-street","mcx","mumbai"}
-        india_filtered = df[df["title"].str.lower().apply(
-            lambda x: any(t in x for t in india_terms)
-        )]
-        df = india_filtered if len(india_filtered) >= 2 else df.head(5)
+        # Zero relevant articles found
+        if asset_type == "stock":
+            # For stocks: show empty rather than flood with wrong articles
+            df = pd.DataFrame(columns=df.columns)
+        else:
+            # For index/commodity/forex: broad market news is acceptable
+            india_terms = {"india","indian","nse","bse","sensex","nifty","sebi","rbi",
+                           "rupee","dalal","d-street","mcx","mumbai"}
+            india_filtered = df[df["title"].str.lower().apply(
+                lambda x: any(t in x for t in india_terms)
+            )]
+            df = india_filtered if len(india_filtered) >= 2 else df.head(5)
     df = df.drop(columns=["relevant"], errors="ignore").reset_index(drop=True)
     def _parse_date_robust(s):
         """Parse RSS date strings robustly — handles +0530, GMT, Z, ISO 8601."""
