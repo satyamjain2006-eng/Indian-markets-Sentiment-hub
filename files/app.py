@@ -1060,13 +1060,23 @@ def fetch_news(company_name: str) -> pd.DataFrame:
             if len(word) >= 3:
                 search_terms.add(word.lower())
 
-    # Hard block: well-known foreign companies that pollute Indian market feeds
+    # Hard block: foreign/global noise that pollutes Indian stock feeds
     FOREIGN_HARD_BLOCK = {
+        # US companies
         "amazon", "apple inc", "apple shares", "apple stock", "apple iphone",
         "google", "alphabet", "microsoft", "tesla", "nvidia", "meta platforms",
         "netflix", "spacex", "openai", "chatgpt", "samsung", "tsmc",
         "walt disney", "berkshire", "elon musk", "jeff bezos", "tim cook",
         "mark zuckerberg", "warren buffett",
+        # US market headlines that pollute Indian feeds
+        "dow jones", "s&p 500", "s&amp;p 500", "nasdaq", "wall street",
+        "us stocks", "us markets", "us nonfarm", "us payroll", "us jobs",
+        "fed rate", "federal reserve", "us gdp", "us inflation", "us economy",
+        "us treasury", "us dollar index", "us bond",
+        # Other foreign markets
+        "ftse", "dax", "nikkei", "hang seng", "shanghai composite",
+        "european stocks", "asian stocks", "global stocks", "global markets",
+        "china stocks", "japan stocks", "uk stocks",
     }
 
     INDEX_SPECIFIC = {"nifty", "sensex", "nifty50", "nifty 50", "^nsei", "^bsesn",
@@ -1105,9 +1115,23 @@ def fetch_news(company_name: str) -> pd.DataFrame:
             has_move  = any(sig in comb for sig in MOVE_SIGNALS)
             return has_index and has_move
 
-        # Stock — title must contain at least one search term
-        # description alone is not enough to qualify an article
-        return any(term in t for term in search_terms)
+        # Stock — title OR first 200 chars of description must contain
+        # the PRIMARY keyword (company short name / ticker).
+        # Matching on generic words like "limited", "industries" is too loose.
+        primary_terms = {keyword.lower(), symbol.lower().replace(".ns","").replace(".bo","")}
+        # Also add meaningful name words (4+ chars, skip generic suffixes)
+        SKIP_WORDS = {"limited","industries","industry","enterprises","solutions",
+                      "services","technologies","technology","infrastructure",
+                      "holdings","group","corporation","international","national",
+                      "india","indian","finance","financial","capital","energy",
+                      "power","resources","ventures","private","public","and","the"}
+        for word in company_name.lower().split():
+            if len(word) >= 4 and word not in SKIP_WORDS:
+                primary_terms.add(word)
+
+        title_match = any(term in t for term in primary_terms)
+        desc_match  = any(term in description.lower()[:300] for term in primary_terms)
+        return title_match or desc_match
 
     indian_sources = {"Economic Times", "MoneyControl", "LiveMint", "Reuters"}
 
@@ -1173,7 +1197,26 @@ def fetch_news(company_name: str) -> pd.DataFrame:
     df["description"] = df["description"].fillna("")
 
     relevant = df[df["relevant"] == True]
-    df = relevant if len(relevant) >= 5 else df
+    if len(relevant) >= 3:
+        df = relevant
+    elif len(relevant) > 0:
+        # Some relevant found — use them, top up with closest matches
+        # "closest" = articles from same fetch that at least mention India/market
+        india_terms = {"india","indian","nse","bse","sensex","nifty","sebi","rbi",
+                       "rupee","dalal","d-street","mcx","mumbai"}
+        semi_relevant = df[df["title"].str.lower().apply(
+            lambda x: any(t in x for t in india_terms)
+        )]
+        combined = pd.concat([relevant, semi_relevant]).drop_duplicates(subset=["title"])
+        df = combined.head(10) if len(combined) >= 3 else relevant
+    else:
+        # Zero relevant — filter to India-related articles only, block pure foreign news
+        india_terms = {"india","indian","nse","bse","sensex","nifty","sebi","rbi",
+                       "rupee","dalal","d-street","mcx","mumbai"}
+        india_filtered = df[df["title"].str.lower().apply(
+            lambda x: any(t in x for t in india_terms)
+        )]
+        df = india_filtered if len(india_filtered) >= 2 else df.head(5)
     df = df.drop(columns=["relevant"], errors="ignore").reset_index(drop=True)
     def _parse_date_robust(s):
         """Parse RSS date strings robustly — handles +0530, GMT, Z, ISO 8601."""
@@ -2175,13 +2218,22 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
                             unsafe_allow_html=True
                         )
 
-            # ── 1mo+: daily returns (switched from price levels) ──────────────
-            # Returns-based is more accurate than price levels which can show
-            # spurious correlation between two unrelated bull-market assets.
+            # ── 1mo+: normalised price levels ─────────────────────────────
+            # Both series normalised to 100 at start so different-unit assets
+            # (Gold in USD, Nifty in INR) are directly comparable.
             else:
-                ret_a_d = _to_returns(ca_df_a, "A", freq="1D")
-                ret_b_d = _to_returns(ca_df_b, "B", freq="1D")
-                merged_d = pd.concat([ret_a_d, ret_b_d], axis=1).dropna()
+                def _to_norm_price(df, col):
+                    d = df[["Date","Close"]].copy()
+                    d["Date"] = pd.to_datetime(d["Date"]).dt.normalize()
+                    d = d.sort_values("Date").drop_duplicates(subset=["Date"])
+                    d = d.set_index("Date")["Close"].dropna().astype(float)
+                    d = d / d.iloc[0] * 100   # normalise to 100
+                    d.name = col
+                    return d
+
+                norm_a = _to_norm_price(ca_df_a, "A")
+                norm_b = _to_norm_price(ca_df_b, "B")
+                merged_d = pd.concat([norm_a, norm_b], axis=1, sort=True).dropna()
                 if len(merged_d) >= 10:
                     corr = merged_d["A"].corr(merged_d["B"])
                     r2   = corr ** 2
@@ -2282,3 +2334,4 @@ if not news_df.empty:
     with st.expander("🔍 Raw sentiment data"):
         cols = ["source","title","label","compound","vader_score","textblob_score"]
         st.dataframe(news_df[cols], use_container_width=True)
+    
