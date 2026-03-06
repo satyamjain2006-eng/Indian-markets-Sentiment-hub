@@ -2218,26 +2218,32 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
                             unsafe_allow_html=True
                         )
 
-            # ── 1mo+: normalised price levels ─────────────────────────────
-            # Both series normalised to 100 at start so different-unit assets
-            # (Gold in USD, Nifty in INR) are directly comparable.
+            # ── 1mo+: chart uses normalised prices, stats use daily returns ──
+            # Chart: both normalised to 100 — visually comparable regardless of units
+            # Correlation/R²: computed on daily % returns — statistically honest,
+            # not fooled by two assets both happening to trend up over time.
             else:
-                def _to_norm_price(df, col):
+                def _to_clean_daily(df, col):
+                    """Returns a clean daily price series indexed by date."""
                     d = df[["Date","Close"]].copy()
                     d["Date"] = pd.to_datetime(d["Date"]).dt.normalize()
                     d = d.sort_values("Date").drop_duplicates(subset=["Date"])
                     d = d.set_index("Date")["Close"].dropna().astype(float)
-                    d = d / d.iloc[0] * 100   # normalise to 100
                     d.name = col
                     return d
 
-                norm_a = _to_norm_price(ca_df_a, "A")
-                norm_b = _to_norm_price(ca_df_b, "B")
-                merged_d = pd.concat([norm_a, norm_b], axis=1, sort=True).dropna()
-                if len(merged_d) >= 10:
-                    corr = merged_d["A"].corr(merged_d["B"])
+                price_a = _to_clean_daily(ca_df_a, "A")
+                price_b = _to_clean_daily(ca_df_b, "B")
+
+                # Returns for correlation — measures day-to-day co-movement
+                ret_a = price_a.pct_change().dropna()
+                ret_b = price_b.pct_change().dropna()
+                merged_ret = pd.concat([ret_a, ret_b], axis=1, sort=True).dropna()
+
+                if len(merged_ret) >= 10:
+                    corr = merged_ret["A"].corr(merged_ret["B"])
                     r2   = corr ** 2
-                    _render_stats(corr, r2, len(merged_d), period)
+                    _render_stats(corr, r2, len(merged_ret), period)
 
         except Exception:
             st.markdown(
@@ -2334,4 +2340,3 @@ if not news_df.empty:
     with st.expander("🔍 Raw sentiment data"):
         cols = ["source","title","label","compound","vader_score","textblob_score"]
         st.dataframe(news_df[cols], use_container_width=True)
-    
