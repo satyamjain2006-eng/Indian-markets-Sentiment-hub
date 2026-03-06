@@ -1391,25 +1391,45 @@ def fetch_price(ticker: str, period: str) -> tuple:
         return pd.DataFrame(), False
 
 
-def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    if df.empty or "Close" not in df.columns:
-        return df
+# add_indicators removed — logic moved into build_price_chart with adaptive windows
+
+
+def build_price_chart(df: pd.DataFrame, ticker: str, period: str = "1mo") -> go.Figure:
+    n = len(df)
+
+    # ── Adaptive indicator windows based on available data points ────────────
+    # 1d/5d: intraday candles (5min/15min) — use shorter windows
+    # 1mo: ~22 daily candles — MA20 barely fits, MA50 impossible
+    # 3mo+: enough for all standard windows
+    if n < 20:
+        ma_short, ma_long = max(3, n//3), max(5, n//2)
+        bb_win = max(5, n//3)
+        macd_fast, macd_slow, macd_sig = 6, 13, 5
+    elif n < 50:
+        ma_short, ma_long = 10, 20
+        bb_win = 10
+        macd_fast, macd_slow, macd_sig = 8, 17, 6
+    else:
+        ma_short, ma_long = 20, 50
+        bb_win = 20
+        macd_fast, macd_slow, macd_sig = 12, 26, 9
+
     close = df["Close"].astype(float)
-    df["MA20"]      = close.rolling(20).mean()
-    df["MA50"]      = close.rolling(50).mean()
-    df["BB_mid"]    = close.rolling(20).mean()
-    df["BB_upper"]  = df["BB_mid"] + 2 * close.rolling(20).std()
-    df["BB_lower"]  = df["BB_mid"] - 2 * close.rolling(20).std()
-    ema12           = close.ewm(span=12, adjust=False).mean()
-    ema26           = close.ewm(span=26, adjust=False).mean()
-    df["MACD"]      = ema12 - ema26
-    df["Signal"]    = df["MACD"].ewm(span=9, adjust=False).mean()
-    df["MACD_hist"] = df["MACD"] - df["Signal"]
-    return df
+    df = df.copy()
+    df["MA_short"]   = close.rolling(ma_short).mean()
+    df["MA_long"]    = close.rolling(ma_long).mean()
+    df["BB_mid"]     = close.rolling(bb_win).mean()
+    df["BB_upper"]   = df["BB_mid"] + 2 * close.rolling(bb_win).std()
+    df["BB_lower"]   = df["BB_mid"] - 2 * close.rolling(bb_win).std()
+    ema_fast         = close.ewm(span=macd_fast,  adjust=False).mean()
+    ema_slow         = close.ewm(span=macd_slow,  adjust=False).mean()
+    df["MACD"]       = ema_fast - ema_slow
+    df["Signal"]     = df["MACD"].ewm(span=macd_sig, adjust=False).mean()
+    df["MACD_hist"]  = df["MACD"] - df["Signal"]
 
+    ma_short_label = f"MA{ma_short}"
+    ma_long_label  = f"MA{ma_long}"
 
-def build_price_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
-    df  = add_indicators(df)
     fig = make_subplots(
         rows=2, cols=1, shared_xaxes=True,
         row_heights=[0.72, 0.28], vertical_spacing=0.06,
@@ -1422,12 +1442,12 @@ def build_price_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
         increasing_fillcolor="#00d4aa", decreasing_fillcolor="#ff4b6e",
         line=dict(width=1), whiskerwidth=0.6,
     ), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df["Date"], y=df["MA20"], name="MA20",
+    fig.add_trace(go.Scatter(x=df["Date"], y=df["MA_short"], name=ma_short_label,
         line=dict(color="#5c7cfa", width=1.5, dash="dot"),
-        hovertemplate="MA20: %{y:.2f}<extra></extra>"), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df["Date"], y=df["MA50"], name="MA50",
+        hovertemplate=f"{ma_short_label}: %{{y:.2f}}<extra></extra>"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df["Date"], y=df["MA_long"], name=ma_long_label,
         line=dict(color="#ffd166", width=1.5, dash="dot"),
-        hovertemplate="MA50: %{y:.2f}<extra></extra>"), row=1, col=1)
+        hovertemplate=f"{ma_long_label}: %{{y:.2f}}<extra></extra>"), row=1, col=1)
     fig.add_trace(go.Scatter(x=df["Date"], y=df["BB_upper"], name="BB Bands",
         line=dict(color="rgba(150,120,255,0.35)", width=1),
         hovertemplate="BB Upper: %{y:.2f}<extra></extra>"), row=1, col=1)
@@ -1941,7 +1961,7 @@ st.markdown("### 📈 Price Chart + Indicators")
 if not price_df.empty:
     if market_closed:
         st.info("🔔 Market is currently closed — showing last 5 trading days of daily data.")
-    st.plotly_chart(build_price_chart(price_df, primary_ticker), use_container_width=True)
+    st.plotly_chart(build_price_chart(price_df, primary_ticker, period), use_container_width=True)
 else:
     st.warning("Price data unavailable. Check the ticker or try BSE (.BO) instead of NSE (.NS).")
 
