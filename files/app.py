@@ -660,20 +660,49 @@ _FIN_STRONG_NEG = {"crash","crashed","crashes","plunge","plunged","plunges",
 _FIN_STRONG_POS = {"rally","rallied","soar","soared","surge","surged",
                    "all-time high","record high","breakout","bull run","fii buying"}
 
-def finance_boost(text: str) -> float:
-    """Return a score adjustment in [-0.55, +0.55] based on finance keywords."""
-    t = text.lower()
-    neg_strong = sum(1 for kw in _FIN_STRONG_NEG if kw in t)
-    pos_strong = sum(1 for kw in _FIN_STRONG_POS if kw in t)
-    neg_reg    = sum(1 for kw in _FIN_NEGATIVE if kw in t and kw not in _FIN_STRONG_NEG)
-    pos_reg    = sum(1 for kw in _FIN_POSITIVE if kw in t and kw not in _FIN_STRONG_POS)
-    neg_total  = min(neg_strong * 0.20 + neg_reg * 0.10, 0.55)
-    pos_total  = min(pos_strong * 0.20 + pos_reg * 0.10, 0.55)
-    return round(pos_total - neg_total, 4)
+# ── Commodity context keywords ────────────────────────────────────────────────
+# For commodities, supply shocks / geopolitical tension / production cuts = PRICE UP = POSITIVE
+# for the commodity investor. These are NEUTRAL or NEGATIVE in stock context
+# but POSITIVE in commodity context.
+_COMMODITY_SUPPLY_SHOCK_POS = {
+    # Geopolitical — restricts supply → price up
+    "war","iran","israel","russia","ukraine","conflict","tension","sanction",
+    "disruption","attack","strike","crisis","hostility","escalation",
+    # OPEC / production cuts → price up
+    "opec","production cut","output cut","supply cut","quota","cartel",
+    "supply disruption","supply shortage","supply deficit","tight supply",
+    # Natural disruptions → price up
+    "hurricane","storm","pipeline","outage","shutdown","refinery fire",
+    # Demand surge → price up
+    "demand surge","demand rise","demand increase","peak demand","winter demand",
+}
+_COMMODITY_SUPPLY_SHOCK_NEG = {
+    # Oversupply → price down
+    "oversupply","surplus","glut","excess supply","production increase",
+    "output increase","opec increase","shale","US production","inventory build",
+    "demand slump","demand fall","demand weakness","recession demand",
+    "ceasefire","peace deal","supply restored","production resumed",
+}
 
-def finance_boost_series(texts: pd.Series) -> pd.Series:
-    """Vectorised finance boost — runs on whole column at once, much faster."""
+# Per-commodity price-rise language that VADER misreads as neutral/negative
+# e.g. "crude at 6-month high" — VADER sees no sentiment, we know it's positive for holder
+_PRICE_RISE_POS = {
+    "month high","year high","week high","multi-year high","record",
+    "above","tops","crosses","climbs to","rises to","jumps to",
+    "six month","6 month","52-week","all time",
+}
+_PRICE_FALL_NEG = {
+    "month low","year low","week low","falls to","drops to","slides to",
+    "below","dips","tumbles to","slips to",
+}
+
+def finance_boost_series(texts: pd.Series, asset_type: str = "stock") -> pd.Series:
+    """Vectorised finance boost — runs on whole column at once.
+    asset_type controls whether supply-shock and price-rise keywords
+    are treated as positive (commodity/crypto/forex) or ignored (stock/index)."""
     lower = texts.str.lower().fillna("")
+
+    # Base stock/index keywords
     all_kw = (
         [(kw, -0.20) for kw in _FIN_STRONG_NEG] +
         [(kw, +0.20) for kw in _FIN_STRONG_POS] +
@@ -683,7 +712,47 @@ def finance_boost_series(texts: pd.Series) -> pd.Series:
     boost = pd.Series(0.0, index=texts.index)
     for kw, val in all_kw:
         boost += lower.str.contains(kw, regex=False, na=False) * val
-    return boost.clip(-0.55, 0.55).round(4)
+
+    if asset_type == "commodity":
+        # Supply shock keywords → POSITIVE for commodity holder
+        for kw in _COMMODITY_SUPPLY_SHOCK_POS:
+            boost += lower.str.contains(kw, regex=False, na=False) * 0.15
+        # Oversupply keywords → NEGATIVE for commodity holder
+        for kw in _COMMODITY_SUPPLY_SHOCK_NEG:
+            boost -= lower.str.contains(kw, regex=False, na=False) * 0.15
+        # Price rise language → POSITIVE
+        for kw in _PRICE_RISE_POS:
+            boost += lower.str.contains(kw, regex=False, na=False) * 0.10
+        # Price fall language → NEGATIVE
+        for kw in _PRICE_FALL_NEG:
+            boost -= lower.str.contains(kw, regex=False, na=False) * 0.10
+
+    elif asset_type == "crypto":
+        # Crypto reacts similarly to commodities for supply/demand signals
+        for kw in _PRICE_RISE_POS:
+            boost += lower.str.contains(kw, regex=False, na=False) * 0.10
+        for kw in _PRICE_FALL_NEG:
+            boost -= lower.str.contains(kw, regex=False, na=False) * 0.10
+        # Regulation / ban → negative for crypto
+        for kw in {"ban","banned","crackdown","sec","illegal","regulate","seized"}:
+            boost -= lower.str.contains(kw, regex=False, na=False) * 0.15
+        # Adoption / ETF → positive for crypto
+        for kw in {"etf","adoption","approved","institutional","bitcoin reserve","legal tender"}:
+            boost += lower.str.contains(kw, regex=False, na=False) * 0.15
+
+    elif asset_type == "forex":
+        # For forex, dollar strength = negative for USD/INR INR holder
+        # but we score from the base currency perspective
+        for kw in _PRICE_RISE_POS:
+            boost += lower.str.contains(kw, regex=False, na=False) * 0.08
+        for kw in _PRICE_FALL_NEG:
+            boost -= lower.str.contains(kw, regex=False, na=False) * 0.08
+
+    return boost.clip(-0.80, 0.80).round(4)
+
+def finance_boost(text: str) -> float:
+    """Single-text version — kept for compatibility."""
+    return float(finance_boost_series(pd.Series([text]), asset_type="stock").iloc[0])
 
 def label_from_score(score: float) -> str:
     if score >= 0.07:  return "Positive"
@@ -874,8 +943,8 @@ def fetch_news(company_name: str) -> pd.DataFrame:
     df["vader_score"]    = df["score_text"].apply(vader_score)
     df["textblob_score"] = df["score_text"].apply(textblob_score)
 
-    # ── Method A: finance keyword boost (vectorised) ──────────────────────────
-    df["boost"]          = finance_boost_series(df["score_text"])
+    # ── Method A: finance keyword boost — context-aware per asset type ────────
+    df["boost"]          = finance_boost_series(df["score_text"], asset_type=asset_type)
     df["vader_score"]    = (df["vader_score"]    + df["boost"]).clip(-1.0, 1.0).round(4)
     df["textblob_score"] = (df["textblob_score"] + df["boost"]).clip(-1.0, 1.0).round(4)
     df["combined_score"] = ((df["vader_score"] + df["textblob_score"]) / 2).round(4)
@@ -1711,3 +1780,4 @@ if not news_df.empty:
         if "finbert_score" in news_df.columns:
             cols.append("finbert_score")
         st.dataframe(news_df[cols], use_container_width=True)
+    
