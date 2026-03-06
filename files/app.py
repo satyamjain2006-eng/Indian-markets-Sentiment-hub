@@ -2064,16 +2064,22 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
                 d["Date"] = pd.to_datetime(d["Date"])
 
                 if freq and freq in ("1D", "1d", "D"):
-                    # Strip time entirely — use calendar date only
-                    # This prevents timezone offsets shifting Gold/Nifty by 1 day
-                    d["Date"] = d["Date"].dt.normalize()
+                    # Strip time and tz — calendar date only, no tz-aware mismatch
+                    dates = d["Date"].dt.normalize()
+                    if dates.dt.tz is not None:
+                        dates = dates.dt.tz_localize(None)
+                    d["Date"] = dates
                     d = d.sort_values("Date").drop_duplicates(subset=["Date"])
                     d = d.set_index("Date")["Close"].dropna()
                 elif freq:
                     d = d.sort_values("Date").set_index("Date")
                     d = d["Close"].resample(freq).last().dropna()
                 else:
-                    # Raw candles — keep timestamps as-is for intraday matching
+                    # Raw candles — strip tz for consistent intraday matching
+                    dates = d["Date"].copy()
+                    if dates.dt.tz is not None:
+                        dates = dates.dt.tz_localize(None)
+                    d["Date"] = dates
                     d = d.sort_values("Date").set_index("Date")["Close"].dropna()
 
                 returns = d.pct_change().dropna()
@@ -2236,9 +2242,16 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
             # not fooled by two assets both happening to trend up over time.
             else:
                 def _to_clean_daily(df, col):
-                    """Returns a clean daily price series indexed by date."""
+                    """Returns a clean daily price series indexed by tz-naive date.
+                    Strips timezone after normalize so Gold (America/New_York) and
+                    Nifty (tz-naive) can be concat'd without TypeError."""
                     d = df[["Date","Close"]].copy()
-                    d["Date"] = pd.to_datetime(d["Date"]).dt.normalize()
+                    dates = pd.to_datetime(d["Date"]).dt.normalize()
+                    # Strip tz — Gold futures come tz-aware, Nifty is tz-naive
+                    # normalize() keeps tz attached, causing concat to fail silently
+                    if dates.dt.tz is not None:
+                        dates = dates.dt.tz_localize(None)
+                    d["Date"] = dates
                     d = d.sort_values("Date").drop_duplicates(subset=["Date"])
                     d = d.set_index("Date")["Close"].dropna().astype(float)
                     d.name = col
@@ -2325,9 +2338,40 @@ st.markdown(f"### 🗞️ Latest News &nbsp;<span style='font-size:0.8rem;color:
             unsafe_allow_html=True)
 
 if not news_df.empty:
+    n_articles = len(news_df)
+
+    # ── Low article count warning ─────────────────────────────────────────────
+    if asset_type == "stock" and n_articles < 5:
+        st.markdown(
+            f"<div style='background:#1a1a2e;border:1px solid #f59e0b;border-radius:8px;"
+            f"padding:10px 14px;margin-bottom:12px;font-size:0.82rem;color:#f59e0b;'>"
+            f"⚠️ <b>Only {n_articles} article{'s' if n_articles != 1 else ''} found</b> for "
+            f"<b>{primary_name}</b>. Coverage may be limited — "
+            f"this stock may have low media visibility or no recent news. "
+            f"Sentiment score is based on fewer data points and may be less reliable."
+            f"</div>",
+            unsafe_allow_html=True
+        )
+    elif asset_type == "stock" and n_articles < 10:
+        st.markdown(
+            f"<div style='background:#1a1a2e;border:1px solid #4a5568;border-radius:8px;"
+            f"padding:8px 14px;margin-bottom:12px;font-size:0.80rem;color:#8892a4;'>"
+            f"ℹ️ {n_articles} articles found — sentiment based on limited recent coverage."
+            f"</div>",
+            unsafe_allow_html=True
+        )
+
     filt = st.radio("Filter", ["All","Positive","Negative","Neutral"],
                     horizontal=True, label_visibility="collapsed")
     filtered = news_df if filt == "All" else news_df[news_df["label"] == filt]
+
+    if filtered.empty and filt != "All":
+        st.markdown(
+            f"<div style='color:#8892a4;font-size:0.85rem;padding:12px;text-align:center;'>"
+            f"No {filt.lower()} articles found in current results.</div>",
+            unsafe_allow_html=True
+        )
+
     for _, row in filtered.iterrows():
         bc = badge_class(row["label"])
         v_score = row.get("vader_score", row["compound"])
@@ -2345,7 +2389,19 @@ if not news_df.empty:
         </div>
         """, unsafe_allow_html=True)
 else:
-    st.info("No news found. Try a different asset or check your connection.")
+    if asset_type == "stock":
+        st.markdown(
+            f"<div style='background:#1a1a2e;border:1px solid #ff4b6e;border-radius:8px;"
+            f"padding:14px;text-align:center;'>"
+            f"<div style='font-size:1.4rem;margin-bottom:6px;'>📭</div>"
+            f"<div style='color:#ff4b6e;font-weight:600;margin-bottom:4px;'>No articles found for {primary_name}</div>"
+            f"<div style='color:#8892a4;font-size:0.82rem;'>This stock may have no recent news coverage, or try searching "
+            f"with a shorter name (e.g. 'Adani' instead of 'Adani Enterprises Limited').</div>"
+            f"</div>",
+            unsafe_allow_html=True
+        )
+    else:
+        st.info("No news found. Try a different asset or check your connection.")
 
 # ── Raw Data ──────────────────────────────────────────────────────────────────
 if not news_df.empty:
