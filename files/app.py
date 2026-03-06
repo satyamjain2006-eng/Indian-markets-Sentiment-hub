@@ -2277,10 +2277,19 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
                 ret_b = price_b.pct_change().dropna()
                 merged_ret = pd.concat([ret_a, ret_b], axis=1, sort=True).dropna()
 
-                if len(merged_ret) >= 10:
-                    corr = merged_ret["A"].corr(merged_ret["B"])
-                    r2   = corr ** 2
+                corr = merged_ret["A"].corr(merged_ret["B"]) if len(merged_ret) >= 3 else float("nan")
+                r2   = corr ** 2 if not (corr != corr) else 0.0  # nan check
+
+                import math
+                if len(merged_ret) >= 3 and not math.isnan(corr):
                     _render_stats(corr, r2, len(merged_ret), period)
+                else:
+                    st.warning(
+                        f"Could not compute correlation. "
+                        f"price_a={len(price_a)} rows, price_b={len(price_b)} rows, "
+                        f"ret_a={len(ret_a)}, ret_b={len(ret_b)}, merged={len(merged_ret)}, "
+                        f"corr={'nan' if (not merged_ret.empty and math.isnan(corr)) else 'n/a (empty)'}"
+                    )
 
         except Exception as _corr_err:
             st.markdown(
