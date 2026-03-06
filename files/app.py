@@ -2002,14 +2002,25 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
 
         try:
             def _to_returns(df, col, freq=None):
-                """Resample to freq if given, compute % returns, return clean series."""
+                """Resample to freq if given, compute % returns, return clean series.
+                For daily resampling: normalize to date-only first so cross-market
+                assets (Gold UTC vs Nifty IST) land on the same calendar date."""
                 d = df[["Date","Close"]].copy()
                 d["Date"] = pd.to_datetime(d["Date"])
-                d = d.sort_values("Date").set_index("Date")
-                if freq:
+
+                if freq and freq in ("1D", "1d", "D"):
+                    # Strip time entirely — use calendar date only
+                    # This prevents timezone offsets shifting Gold/Nifty by 1 day
+                    d["Date"] = d["Date"].dt.normalize()
+                    d = d.sort_values("Date").drop_duplicates(subset=["Date"])
+                    d = d.set_index("Date")["Close"].dropna()
+                elif freq:
+                    d = d.sort_values("Date").set_index("Date")
                     d = d["Close"].resample(freq).last().dropna()
                 else:
-                    d = d["Close"].dropna()
+                    # Raw candles — keep timestamps as-is for intraday matching
+                    d = d.sort_values("Date").set_index("Date")["Close"].dropna()
+
                 returns = d.pct_change().dropna()
                 returns.name = col
                 return returns
