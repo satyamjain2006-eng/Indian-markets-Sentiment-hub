@@ -560,53 +560,322 @@ def combined_score(text: str) -> float:
     return round((v + t) / 2, 4)
 
 # ── Method A: Finance-specific keyword booster ────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# FINANCIAL KEYWORD DICTIONARIES
+# Coverage: Indian markets (NSE/BSE/MCX), global indices, crypto, forex, bonds
+# Three tiers: STRONG (±0.20), REGULAR (±0.10), NEUTRAL (dampens VADER extremes)
+# ══════════════════════════════════════════════════════════════════════════════
+
 _FIN_NEGATIVE = {
-    # market moves
-    "crash":"crash","crashed":"crash","crashes":"crash",
-    "tank":"tank","tanks":"tank","tanked":"tank",
-    "plunge":"plunge","plunged":"plunge","plunges":"plunge",
-    "bleed":"bleed","bleeds":"bleed","bled":"bleed",
-    "tumble":"tumble","tumbled":"tumble","tumbles":"tumble",
-    "slide":"slide","slides":"slide","slid":"slide",
-    "slump":"slump","slumps":"slump","slumped":"slump",
+    # ── Price crash / drop verbs ───────────────────────────────────────────────
+    "crash":"crash","crashed":"crash","crashes":"crash","crashing":"crash",
+    "tank":"tank","tanks":"tank","tanked":"tank","tanking":"tank",
+    "plunge":"plunge","plunged":"plunge","plunges":"plunge","plunging":"plunge",
+    "tumble":"tumble","tumbled":"tumble","tumbles":"tumble","tumbling":"tumble",
+    "slide":"slide","slides":"slide","slid":"slide","sliding":"slide",
+    "slump":"slump","slumps":"slump","slumped":"slump","slumping":"slump",
+    "sink":"sink","sinks":"sink","sank":"sink","sinking":"sink",
+    "fall":"fall","falls":"fall","fell":"fall","falling":"fall",
+    "drop":"drop","drops":"drop","dropped":"drop","dropping":"drop",
+    "decline":"decline","declines":"decline","declined":"decline","declining":"decline",
+    "dip":"dip","dips":"dip","dipped":"dip","dipping":"dip",
+    "shed":"shed","sheds":"shed","shedding":"shed",
+    "erode":"erode","erodes":"erode","eroded":"erode","eroding":"erode",
+    "retreat":"retreat","retreats":"retreat","retreated":"retreat",
+    "bleed":"bleed","bleeds":"bleed","bled":"bleed","bleeding":"bleed",
+    "wane":"wane","wanes":"wane","waned":"wane","waning":"wane",
+    "skid":"skid","skids":"skid","skidded":"skid",
+    "slipped":"slip","slips":"slip","slip":"slip",
+    "stumble":"stumble","stumbles":"stumble","stumbled":"stumble",
+    "collapse":"collapse","collapsed":"collapse","collapses":"collapse","collapsing":"collapse",
+
+    # ── Extreme events ─────────────────────────────────────────────────────────
+    "bloodbath":"bloodbath","meltdown":"meltdown","freefall":"freefall",
+    "free fall":"freefall","nosedive":"nosedive","nose-dive":"nosedive",
     "selloff":"selloff","sell-off":"selloff","sell off":"selloff",
-    "rout":"rout","bloodbath":"bloodbath","meltdown":"meltdown",
-    "freefall":"freefall","free fall":"freefall",
-    "nosedive":"nosedive","nose-dive":"nosedive",
-    "correction":"correction","bear":"bear","bearish":"bear",
-    "circuit breaker":"circuit","lower circuit":"circuit",
-    "fii selling":"fii_sell","foreign selling":"fii_sell",
-    "outflow":"outflow","outflows":"outflow",
-    "loss":"loss","losses":"loss","deficit":"deficit",
-    "downgrade":"downgrade","downgraded":"downgrade",
-    "weak":"weak","weakness":"weak","weaker":"weak",
-    "concern":"concern","concerns":"concern","worry":"worry","worried":"worry",
-    "war":"war","tension":"tension","conflict":"conflict","crisis":"crisis",
-    "sanction":"sanction","ban":"ban","default":"default",
-}
-_FIN_POSITIVE = {
-    "rally":"rally","rallied":"rally","rallies":"rally",
-    "surge":"surge","surged":"surge","surges":"surge",
-    "soar":"soar","soared":"soar","soars":"soar",
-    "jump":"jump","jumped":"jump","jumps":"jump",
-    "gain":"gain","gains":"gain","gained":"gain",
-    "rise":"rise","rises":"rise","rose":"rise",
-    "climb":"climb","climbed":"climb","climbs":"climb",
-    "bull":"bull","bullish":"bull","breakout":"breakout",
-    "all-time high":"ath","record high":"ath","52-week high":"ath",
-    "fii buying":"fii_buy","foreign buying":"fii_buy",
-    "inflow":"inflow","inflows":"inflow",
-    "profit":"profit","profits":"profit","beat":"beat","beats":"beat",
-    "upgrade":"upgrade","upgraded":"upgrade",
-    "strong":"strong","strength":"strong","stronger":"strong",
-    "recovery":"recovery","recover":"recovery","rebound":"rebound",
-    "optimism":"optimism","positive":"positive_kw","growth":"growth",
+    "rout":"rout","wipeout":"wipeout","wipe out":"wipeout",
+    "capitulation":"capitulation","margin call":"margin_call",
+    "circuit breaker":"circuit","lower circuit":"circuit","upper circuit hit":"ucircuit",
+    "flash crash":"flash_crash","black swan":"black_swan",
+
+    # ── Trend / structure ──────────────────────────────────────────────────────
+    "bear":"bear","bearish":"bear","bear market":"bear","bear run":"bear",
+    "bear trap":"bear","downtrend":"downtrend","downward":"downtrend",
+    "correction":"correction","corrects":"correction","corrected":"correction",
+    "reversal":"reversal","reversed":"reversal","breakdown":"breakdown",
+    "broke down":"breakdown","breaks down":"breakdown",
+    "death cross":"death_cross","head and shoulders":"h_s_pattern",
+    "resistance failed":"res_fail","support broken":"sup_break",
+    "lower high":"lower_high","lower low":"lower_low",
+
+    # ── Selling activity ───────────────────────────────────────────────────────
+    "selling pressure":"sell_pressure","heavy selling":"sell_pressure",
+    "panic selling":"panic_sell","panic":"panic","dumping":"dumping",
+    "fii selling":"fii_sell","dii selling":"dii_sell",
+    "foreign selling":"fii_sell","institutional selling":"inst_sell",
+    "short selling":"short","shorting":"short","short position":"short",
+    "profit booking":"profit_book","profit-taking":"profit_book",
+    "book loss":"book_loss","stop loss":"stop_loss","stop-loss triggered":"sl_trigger",
+
+    # ── Flows / capital ────────────────────────────────────────────────────────
+    "outflow":"outflow","outflows":"outflow","capital outflow":"outflow",
+    "net seller":"net_sell","net sellers":"net_sell","net short":"net_short",
+    "redemption":"redemption","redemptions":"redemption","exit":"exit",
+
+    # ── Earnings / fundamentals ────────────────────────────────────────────────
+    "loss":"loss","losses":"loss","net loss":"net_loss","operating loss":"op_loss",
+    "deficit":"deficit","shortfall":"shortfall","miss":"miss","missed":"miss",
+    "below estimate":"below_est","below expectation":"below_est",
+    "disappoints":"disappoint","disappointed":"disappoint","disappointing":"disappoint",
+    "warned":"warn","warning":"warn","profit warning":"warn",
+    "guidance cut":"guid_cut","guidance reduced":"guid_cut",
+    "revenue miss":"rev_miss","earnings miss":"earn_miss","eps miss":"eps_miss",
+    "margin pressure":"margin_press","margin squeeze":"margin_press",
+    "cost overrun":"cost_over","cost pressure":"cost_press",
+    "write-off":"writeoff","write off":"writeoff","impairment":"impairment",
+    "goodwill writedown":"writedown","asset writedown":"writedown",
+    "restructuring charge":"restr_chg","one-time charge":"ot_chg",
+    "debt trap":"debt_trap","debt burden":"debt_burd","overleveraged":"overlev",
+    "insolvency":"insolvency","bankruptcy":"bankruptcy","bankrupt":"bankrupt",
+    "liquidation":"liquidation","npa":"npa","non-performing":"npa",
+    "bad loan":"bad_loan","bad debt":"bad_debt",
+
+    # ── Ratings / analyst ──────────────────────────────────────────────────────
+    "downgrade":"downgrade","downgraded":"downgrade","cut rating":"cut_rat",
+    "sell rating":"sell_rat","underperform":"underperform","underweight":"underweight",
+    "reduce rating":"reduce_rat","target cut":"target_cut","price target cut":"target_cut",
+    "avoid":"avoid","exit call":"exit_call",
+
+    # ── Macro / economy ────────────────────────────────────────────────────────
+    "recession":"recession","stagflation":"stagflation","deflation":"deflation",
+    "slowdown":"slowdown","contraction":"contraction","gdp miss":"gdp_miss",
+    "gdp contracts":"gdp_cont","gdp falls":"gdp_fall",
+    "unemployment rises":"unemp_rise","job cuts":"job_cuts","layoffs":"layoffs",
+    "layoff":"layoff","retrenchment":"retrenchment","fired":"fired",
+    "inflation high":"infl_high","inflation surge":"infl_surge",
+    "rate hike":"rate_hike","rate hikes":"rate_hike","hawkish":"hawkish",
+    "tightening":"tightening","liquidity crunch":"liq_crunch",
+    "credit crunch":"credit_crunch","tight liquidity":"tight_liq",
+    "fiscal deficit":"fiscal_def","current account deficit":"cad",
+    "rupee falls":"rupee_fall","rupee weakens":"rupee_weak","rupee at low":"rupee_low",
+    "currency devaluation":"devaluation","devalued":"devaluation",
+    "imported inflation":"imp_infl","trade deficit":"trade_def",
+
+    # ── Geopolitical / policy ──────────────────────────────────────────────────
+    "war":"war","conflict":"conflict","crisis":"crisis","tension":"tension",
+    "sanction":"sanction","sanctions":"sanction","embargo":"embargo",
+    "tariff":"tariff","tariffs":"tariff","trade war":"trade_war",
+    "protectionism":"protect","import duty":"import_duty",
+    "ban":"ban","banned":"ban","crackdown":"crackdown",
+    "regulatory action":"reg_action","probe":"probe","investigation":"investigation",
+    "fraud":"fraud","scam":"scam","scandal":"scandal","default":"default",
+    "sovereign default":"sov_default","debt crisis":"debt_crisis",
+
+    # ── Sentiment / outlook ────────────────────────────────────────────────────
+    "weak":"weak","weakness":"weak","weaker":"weak","weakening":"weak",
+    "concern":"concern","concerns":"concern","concerned":"concern",
+    "worry":"worry","worried":"worry","worries":"worry","worrying":"worry",
+    "caution":"caution","cautious":"caution","risk-off":"risk_off",
+    "uncertainty":"uncertainty","uncertain":"uncertainty",
+    "pessimism":"pessimism","pessimistic":"pessimism","gloomy":"gloomy",
+    "negative outlook":"neg_outlook","dim outlook":"neg_outlook",
+    "headwind":"headwind","headwinds":"headwind",
+    "pressure":"pressure","under pressure":"pressure","stressed":"stress",
+    "fragile":"fragile","volatile":"volatile","volatility":"volatile",
+    "turbulence":"turbulence","turbulent":"turbulence",
+    "worst":"worst","lowest":"lowest","multi-year low":"myl","52-week low":"52wl",
+    "all-time low":"atl","record low":"rec_low","historic low":"rec_low",
+    "below support":"below_sup","key support broken":"sup_break",
+
+    # ── Indian-market specific ─────────────────────────────────────────────────
+    "sebi action":"sebi_act","sebi ban":"sebi_ban","sebi probe":"sebi_probe",
+    "promoter pledge":"prom_pledge","promoter selling":"prom_sell",
+    "bulk deal sell":"bulk_sell","block deal sell":"block_sell",
+    "ipo withdrawn":"ipo_with","ipo flop":"ipo_flop","ipo below issue":"ipo_below",
+    "fpo cancelled":"fpo_can","rights issue flop":"ri_flop",
+    "mcx limit hit":"mcx_lim","commodity limit":"comm_lim",
 }
 
-# High-impact single keywords that alone strongly signal direction
-_FIN_STRONG_NEG = {"crash","crashed","crashes","plunge","plunged","plunges",
-                   "bloodbath","meltdown","freefall","free fall","rout","circuit breaker",
-                   "lower circuit","nosedive","bleed","bleeds","bled","selloff","sell-off"}
+_FIN_POSITIVE = {
+    # ── Price rise verbs ───────────────────────────────────────────────────────
+    "rally":"rally","rallied":"rally","rallies":"rally","rallying":"rally",
+    "surge":"surge","surged":"surge","surges":"surge","surging":"surge",
+    "soar":"soar","soared":"soar","soars":"soar","soaring":"soar",
+    "jump":"jump","jumped":"jump","jumps":"jump","jumping":"jump",
+    "gain":"gain","gains":"gain","gained":"gain","gaining":"gain",
+    "rise":"rise","rises":"rise","rose":"rise","rising":"rise",
+    "climb":"climb","climbed":"climb","climbs":"climb","climbing":"climb",
+    "advance":"advance","advances":"advance","advanced":"advance","advancing":"advance",
+    "shoot up":"shoot_up","shoots up":"shoot_up","shot up":"shoot_up",
+    "zoom":"zoom","zoomed":"zoom","zooms":"zoom","zooming":"zoom",
+    "spike":"spike","spiked":"spike","spikes":"spike","spiking":"spike",
+    "pop":"pop","popped":"pop","pops":"pop","popping":"pop",
+    "lift":"lift","lifted":"lift","lifts":"lift","lifting":"lift",
+    "bounce":"bounce","bounced":"bounce","bounces":"bounce","bouncing":"bounce",
+    "recover":"recover","recovered":"recover","recovers":"recover","recovering":"recover",
+    "rebound":"rebound","rebounded":"rebound","rebounds":"rebound","rebounding":"rebound",
+    "uptick":"uptick","tick up":"tick_up","ticked up":"tick_up",
+    "inch up":"inch_up","inched up":"inch_up",
+
+    # ── Record / high levels ───────────────────────────────────────────────────
+    "all-time high":"ath","record high":"ath","new high":"ath",
+    "52-week high":"52wh","multi-year high":"myh","lifetime high":"ath",
+    "fresh peak":"ath","fresh high":"ath","historic high":"ath",
+    "crossed":"crossed","tops":"tops","breaks above":"breaks_above",
+    "above resistance":"above_res","key level cleared":"key_clear",
+    "golden cross":"golden_cross","breakout":"breakout","broke out":"breakout",
+
+    # ── Trend / structure ──────────────────────────────────────────────────────
+    "bull":"bull","bullish":"bull","bull market":"bull","bull run":"bull",
+    "uptrend":"uptrend","upward":"uptrend","momentum":"momentum",
+    "higher high":"higher_high","higher low":"higher_low",
+    "support holds":"sup_hold","support strong":"sup_strong",
+
+    # ── Buying activity ────────────────────────────────────────────────────────
+    "fii buying":"fii_buy","dii buying":"dii_buy",
+    "foreign buying":"fii_buy","institutional buying":"inst_buy",
+    "net buyer":"net_buy","net buyers":"net_buy","net long":"net_long",
+    "accumulation":"accum","accumulate":"accum","accumulated":"accum",
+    "inflow":"inflow","inflows":"inflow","capital inflow":"inflow",
+    "fresh buying":"fresh_buy","strong buying":"strong_buy",
+    "short covering":"short_cov","short cover":"short_cov",
+    "upper circuit":"ucircuit",
+
+    # ── Earnings / fundamentals ────────────────────────────────────────────────
+    "profit":"profit","profits":"profit","net profit":"net_profit",
+    "beat":"beat","beats":"beat","beaten":"beat",
+    "above estimate":"above_est","above expectation":"above_est",
+    "exceeds":"exceeds","exceeded":"exceeds","record profit":"rec_profit",
+    "strong earnings":"strong_earn","earnings beat":"earn_beat","eps beat":"eps_beat",
+    "revenue beat":"rev_beat","topline growth":"top_growth",
+    "margin expansion":"margin_exp","margin improvement":"margin_imp",
+    "ebitda growth":"ebitda_growth","pat growth":"pat_growth",
+    "guidance raised":"guid_raise","guidance upgrade":"guid_raise",
+    "order win":"order_win","order book growth":"order_book",
+    "contract win":"contract_win","new deal":"new_deal","deal win":"deal_win",
+    "partnership":"partnership","merger synergy":"merger_syn",
+    "dividend":"dividend","special dividend":"spec_div","interim dividend":"int_div",
+    "bonus shares":"bonus","stock split":"split","buyback":"buyback",
+    "share repurchase":"buyback","debt free":"debt_free","debt reduced":"debt_red",
+    "cash rich":"cash_rich","strong balance sheet":"strong_bs",
+
+    # ── Ratings / analyst ──────────────────────────────────────────────────────
+    "upgrade":"upgrade","upgraded":"upgrade","buy rating":"buy_rat",
+    "outperform":"outperform","overweight":"overweight",
+    "target raised":"target_raise","price target raised":"target_raise",
+    "strong buy":"strong_buy_rat","add rating":"add_rat",
+    "initiate buy":"init_buy","initiates coverage":"init_cov",
+
+    # ── Macro / economy ────────────────────────────────────────────────────────
+    "gdp growth":"gdp_growth","gdp beats":"gdp_beat","gdp rises":"gdp_rise",
+    "rate cut":"rate_cut","rate cuts":"rate_cut","dovish":"dovish",
+    "easing":"easing","stimulus":"stimulus","quantitative easing":"qe",
+    "employment rises":"emp_rise","job creation":"job_create","hiring":"hiring",
+    "inflation eases":"infl_ease","inflation cools":"infl_cool",
+    "rupee rises":"rupee_rise","rupee strengthens":"rupee_str","rupee gains":"rupee_gain",
+    "trade surplus":"trade_sur","current account surplus":"ca_sur",
+    "fiscal consolidation":"fiscal_con","tax cut":"tax_cut","tax relief":"tax_rel",
+    "reform":"reform","reforms":"reform","policy support":"pol_sup",
+    "rbi support":"rbi_sup","rbi rate cut":"rbi_cut","rbi dovish":"rbi_dov",
+
+    # ── Sentiment / outlook ────────────────────────────────────────────────────
+    "strong":"strong","strength":"strong","stronger":"strong","strengthens":"strong",
+    "optimism":"optimism","optimistic":"optimism","confidence":"confidence",
+    "positive outlook":"pos_outlook","bright outlook":"pos_outlook",
+    "recovery":"recovery","turnaround":"turnaround","revival":"revival",
+    "tailwind":"tailwind","tailwinds":"tailwind",
+    "risk-on":"risk_on","risk appetite":"risk_on","appetite for risk":"risk_on",
+    "resilient":"resilient","resilience":"resilient","robust":"robust",
+    "outperform":"outperform","outperforming":"outperform","outperformed":"outperform",
+    "best week":"best_week","best day":"best_day","best session":"best_sess",
+    "multi-year high":"myh","52-week high":"52wh","record":"record",
+
+    # ── Indian-market specific ─────────────────────────────────────────────────
+    "sebi approval":"sebi_app","sebi green light":"sebi_app",
+    "ipo oversubscribed":"ipo_over","ipo subscribed":"ipo_sub","ipo listing gain":"ipo_gain",
+    "grey market premium":"gmp","gmp positive":"gmp_pos",
+    "promoter buying":"prom_buy","bulk deal buy":"bulk_buy","block deal buy":"block_buy",
+    "fpo success":"fpo_suc","rights issue success":"ri_suc",
+    "nse listing":"nse_list","bse listing":"bse_list",
+    "fii net buyer":"fii_net_buy","dii net buyer":"dii_net_buy",
+    "mutual fund buying":"mf_buy","sip inflow":"sip_inf",
+}
+
+# ── STRONG keywords — each alone is worth ±0.20 ───────────────────────────────
+# These are unambiguous crash/rip signals even without context
+_FIN_STRONG_NEG = {
+    # Classic crash vocab
+    "crash","crashed","crashes","crashing",
+    "plunge","plunged","plunges","plunging",
+    "bloodbath","meltdown","freefall","free fall",
+    "nosedive","nose-dive","rout","wipeout","capitulation",
+    "selloff","sell-off","circuit breaker","lower circuit",
+    "flash crash","black swan","margin call",
+    # Indian market crash vocab VADER misses
+    "tank","tanks","tanked","tanking",
+    "tumble","tumbles","tumbled","tumbling",
+    "slump","slumps","slumped","slumping",
+    "sink","sinks","sank","sinking",
+    "fall","falls","fell","falling",
+    "drop","drops","dropped","dropping",
+    "collapse","collapsed","collapses","collapsing",
+    "bleed","bleeds","bled","bleeding",
+    # Panic signals
+    "panic selling","heavy selling","selling pressure","panic",
+    "worst week","worst day","worst session","worst month","worst year",
+    "52-week low","multi-year low","all-time low","record low","historic low",
+    "below support","support broken","key support broken","death cross",
+    "breakdown","broke down",
+    # Macro shocks
+    "recession","bankruptcy","bankrupt","insolvency","default","sovereign default",
+    "debt crisis","credit crunch","liquidity crunch",
+}
+
+_FIN_STRONG_POS = {
+    # Classic rally vocab
+    "rally","rallied","rallies","rallying",
+    "surge","surged","surges","surging",
+    "soar","soared","soars","soaring",
+    "all-time high","record high","new high","lifetime high","fresh peak",
+    "breakout","broke out","golden cross","bull run",
+    # Indian market rally vocab
+    "zoom","zoomed","zooming",
+    "shoot up","shot up",
+    "spike","spiked","spiking",
+    "best week","best day","best session","best month","best year",
+    "52-week high","multi-year high","historic high",
+    # Strong buying signals
+    "fii buying","short covering","upper circuit",
+    "ipo oversubscribed","strong rally","massive rally",
+    # Rate/policy windfalls
+    "rate cut","stimulus","quantitative easing","dovish pivot",
+}
+
+# ── NEUTRAL keywords — reduce VADER extremes on ambiguous words ───────────────
+# These appear in financial articles but don't by themselves indicate direction.
+# When present, we slightly dampen the base VADER score toward 0 by 0.05
+# to prevent VADER from over-reading them as positive/negative.
+_FIN_NEUTRAL = {
+    # Market mechanics — not inherently good or bad
+    "ipo","fpo","nfo","listing","demerger","merger","acquisition","takeover",
+    "qip","rights issue","open offer","delisting","split","consolidation",
+    "quarterly results","q1","q2","q3","q4","annual results","earnings",
+    "results today","preview","review","outlook","forecast","estimate",
+    "target price","analyst","brokerage","research report","note",
+    "sebi","rbi","nse","bse","mcx","irda","irdai","pfrda",
+    "trading halt","circuit","futures","options","expiry","rollover",
+    "derivative","hedging","arbitrage","index rebalance","rebalancing",
+    "dividend record date","ex-dividend","cum-dividend","record date",
+    "bonus record date","split record date","agm","egm","board meeting",
+    "board approved","announced","declared","notified","filed",
+    "portfolio","holdings","stake","shareholding","promoter",
+    "fii","dii","mf","mutual fund","sip","aum","nav",
+    "sensex","nifty","indices","index","sectoral","midcap","smallcap",
+    "global cues","asian markets","us markets","european markets",
+    "crude oil","gold price","silver price","dollar","rupee",
+    "volume","open interest","put call ratio","pcr","vix","india vix",
+    "support","resistance","moving average","rsi","macd","bollinger",
+}
 _FIN_STRONG_POS = {"rally","rallied","soar","soared","surge","surged",
                    "all-time high","record high","breakout","bull run","fii buying"}
 
@@ -676,6 +945,18 @@ def finance_boost_series(texts: pd.Series, asset_type: str = "stock") -> pd.Seri
     boost = pd.Series(0.0, index=texts.index)
     for kw, val in all_kw:
         boost += lower.str.contains(kw, regex=False, na=False) * val
+
+    # Neutral dampening — when article is mostly factual/mechanical language,
+    # pull VADER's extreme scores slightly toward zero (±0.05 per neutral term)
+    # Capped so neutrals can only reduce boost, never flip it
+    neutral_count = pd.Series(0.0, index=texts.index)
+    for kw in _FIN_NEUTRAL:
+        neutral_count += lower.str.contains(kw, regex=False, na=False).astype(float)
+    # Each neutral keyword dampens by 0.03, max dampening 0.15
+    dampen = (neutral_count * 0.03).clip(upper=0.15)
+    # Apply dampening toward zero (reduce magnitude, not flip)
+    boost = boost.where(boost >= 0, boost + dampen).where(boost <= 0, boost - dampen)
+    boost = boost.clip(-0.80, 0.80)
 
     if asset_type == "commodity":
         # Short-term supply shock → POSITIVE (immediate price spike)
