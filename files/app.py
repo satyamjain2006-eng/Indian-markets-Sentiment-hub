@@ -1951,6 +1951,18 @@ st.markdown(
 st.markdown("---")
 
 # ── Fetch data ────────────────────────────────────────────────────────────────
+# Derive asset_type for use in display layer
+if asset_class == "🏅 MCX Commodities":
+    asset_type = "commodity"
+elif asset_class == "₿ Crypto":
+    asset_type = "crypto"
+elif asset_class == "💱 Forex":
+    asset_type = "forex"
+elif primary_name in {"Nifty 50","Sensex","Nifty Bank","Nifty Midcap 50"}:
+    asset_type = "index"
+else:
+    asset_type = "stock"
+
 with st.spinner(f"Loading {primary_name}…"):
     with ThreadPoolExecutor(max_workers=2) as executor:
         fut_price = executor.submit(fetch_price, primary_ticker, period)
