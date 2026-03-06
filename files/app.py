@@ -531,57 +531,7 @@ def get_news_keyword(company_name: str) -> str:
 
 
 # ── Sentiment scorers ─────────────────────────────────────────────────────────
-HF_API_KEY = st.secrets.get("HF_API_KEY", "")
-
-# DistilRoBERTa fine-tuned on financial news — finance-specific, faster than FinBERT
-_DISTILROBERTA_URL = (
-    "https://router.huggingface.co/hf-inference/models/"
-    "mrm8488/distilroberta-finetuned-financial-news-sentiment-analysis"
-)
-# Label map: this model returns "positive" / "negative" / "neutral" (lowercase)
-_DR_LABEL_MAP = {"positive": "Positive", "negative": "Negative", "neutral": "Neutral"}
-
-def finbert_scores(texts: list) -> tuple:
-    """Score texts with DistilRoBERTa (financial news fine-tuned).
-    Falls back silently — caller handles empty list as 'use VADER+TextBlob'.
-    Returns (results_list, error_msg)."""
-    if not HF_API_KEY:
-        return [], ""          # silent — no key is expected on some deployments
-    try:
-        headers = {"Authorization": f"Bearer {HF_API_KEY}"}
-        all_parsed = []
-        for i in range(0, len(texts), 16):   # DistilRoBERTa handles larger batches
-            batch = texts[i:i+16]
-            resp = requests.post(
-                _DISTILROBERTA_URL,
-                headers={**headers, "x-wait-for-model": "true"},
-                json={"inputs": batch},
-                timeout=6,
-            )
-            if resp.status_code in (503, 504):
-                return [], "Model warming up"
-            if resp.status_code == 401: return [], "Invalid HF API key"
-            if resp.status_code == 403: return [], "Token lacks Inference permission"
-            if resp.status_code != 200: return [], f"HTTP {resp.status_code}"
-            data = resp.json()
-            if isinstance(data, dict) and "error" in data:
-                return [], data["error"]
-            for item in data:
-                try:
-                    candidates = item if isinstance(item, list) else [item]
-                    best  = max(candidates, key=lambda x: x["score"])
-                    label = _DR_LABEL_MAP.get(best["label"].strip().lower(), "Neutral")
-                    score = best["score"]
-                    compound = score if label == "Positive" else (
-                               -score if label == "Negative" else 0.0)
-                    all_parsed.append({"label": label, "compound": round(compound, 4)})
-                except Exception:
-                    all_parsed.append(None)
-        return all_parsed, ""
-    except requests.exceptions.Timeout:
-        return [], "Timeout"
-    except Exception:
-        return [], "Unavailable"
+# Scoring: VADER + TextBlob + finance keyword boost (no external API)
 
 
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer as _VADER
@@ -994,34 +944,9 @@ def fetch_news(company_name: str) -> pd.DataFrame:
     df["textblob_score"] = (df["textblob_score"] + df["boost"]).clip(-1.0, 1.0).round(4)
     df["combined_score"] = ((df["vader_score"] + df["textblob_score"]) / 2).round(4)
 
-    # ── Try DistilRoBERTa — skip if it failed in the last 5 minutes ─────────
-    titles = df["title"].tolist()
-    _last_fail_key = "_distilroberta_last_fail"
-    _now_ts = pd.Timestamp.now().timestamp()
-    _last_fail = st.session_state.get(_last_fail_key, 0)
-    _skip_distil = (_now_ts - _last_fail) < 300   # skip for 5 min after failure
-
-    if _skip_distil:
-        finbert_results, finbert_error = [], "skipped (cooling down)"
-    else:
-        finbert_results, finbert_error = finbert_scores(titles)
-        if not finbert_results:
-            st.session_state[_last_fail_key] = _now_ts   # record failure time
-
-    if finbert_results and len(finbert_results) == len(titles):
-        df["finbert_score"] = [
-            (r["compound"] + df["boost"].iloc[i] if r else df["combined_score"].iloc[i])
-            for i, r in enumerate(finbert_results)
-        ]
-        df["finbert_score"] = pd.Series(df["finbert_score"]).clip(-1.0, 1.0).round(4)
-        df["compound"]    = df[["vader_score","textblob_score","finbert_score"]].mean(axis=1).round(4)
-        df["scorer"]      = "DistilRoBERTa + VADER + TextBlob"
-        df["scorer_note"] = ""
-    else:
-        df["finbert_score"] = None
-        df["compound"]      = df["combined_score"]
-        df["scorer"]        = "VADER + TextBlob"
-        df["scorer_note"]   = finbert_error
+    # Scoring: VADER + TextBlob + finance keyword boost
+    df["compound"] = df["combined_score"]
+    df["scorer"]   = "VADER + TextBlob"
 
     # ── Method D: recency weighting ──────────────────────────────────────────
     # Weights are used ONLY in the KPI average — individual article scores
@@ -1062,6 +987,35 @@ def fetch_news(company_name: str) -> pd.DataFrame:
     return df
 
 
+# ── yfinance safety buffer ────────────────────────────────────────────────────
+# Cached longer for comparison (300s) vs main chart (60s) — fewer total requests
+# Retry once with 1s backoff before giving up
+_YF_LAST_CALL = {}   # ticker+period → last call timestamp, for throttling
+
+def _yf_download_safe(ticker: str, **kwargs) -> pd.DataFrame:
+    """Thin wrapper around yf.download with throttle + single retry."""
+    import time
+    key = ticker + str(kwargs.get("period","")) + str(kwargs.get("interval",""))
+    now = time.time()
+    last = _YF_LAST_CALL.get(key, 0)
+    # Throttle: minimum 0.5s between identical requests (non-cached calls only)
+    if now - last < 0.5:
+        time.sleep(0.5 - (now - last))
+    _YF_LAST_CALL[key] = time.time()
+    try:
+        data = yf.download(ticker, progress=False, auto_adjust=True, **kwargs)
+        if data.empty:
+            # Single retry after 1s backoff
+            time.sleep(1.0)
+            data = yf.download(ticker, progress=False, auto_adjust=True, **kwargs)
+        return data
+    except Exception:
+        try:
+            time.sleep(1.0)
+            return yf.download(ticker, progress=False, auto_adjust=True, **kwargs)
+        except Exception:
+            return pd.DataFrame()
+
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_price(ticker: str, period: str) -> tuple:
     def _clean(df: pd.DataFrame, is_intraday: bool) -> pd.DataFrame:
@@ -1080,22 +1034,22 @@ def fetch_price(ticker: str, period: str) -> tuple:
 
     try:
         if period == "1d":
-            data = yf.download(ticker, period="1d", interval="5m", progress=False, auto_adjust=True)
+            data = _yf_download_safe(ticker, period="1d", interval="5m")
             data = _clean(data, is_intraday=True)
             if data.empty or len(data) < 2:
-                data = yf.download(ticker, period="5d", interval="1d", progress=False, auto_adjust=True)
+                data = _yf_download_safe(ticker, period="5d", interval="1d")
                 data = _clean(data, is_intraday=False)
                 return data, True
             return data, False
         elif period == "5d":
-            data = yf.download(ticker, period="5d", interval="15m", progress=False, auto_adjust=True)
+            data = _yf_download_safe(ticker, period="5d", interval="15m")
             data = _clean(data, is_intraday=True)
             if data.empty:
-                data = yf.download(ticker, period="5d", interval="1d", progress=False, auto_adjust=True)
+                data = _yf_download_safe(ticker, period="5d", interval="1d")
                 data = _clean(data, is_intraday=False)
             return data, False
         else:
-            data = yf.download(ticker, period=period, progress=False, auto_adjust=True)
+            data = _yf_download_safe(ticker, period=period)
             return _clean(data, is_intraday=False), False
     except Exception:
         return pd.DataFrame(), False
@@ -1194,10 +1148,7 @@ def build_sentiment_trend(df: pd.DataFrame) -> go.Figure:
         "article_count": ("compound",      "count"),
         "titles":        ("title",         top5_titles),
     }
-    # Only include finbert if column exists and has data
-    has_finbert = "finbert_score" in df.columns and df["finbert_score"].notna().any()
-    if has_finbert:
-        agg_dict["finbert_score"] = ("finbert_score", "mean")
+    has_finbert = False  # DistilRoBERTa removed
 
     daily = (
         df.groupby("date")
@@ -1231,13 +1182,7 @@ def build_sentiment_trend(df: pd.DataFrame) -> go.Figure:
         line=dict(color="rgba(255,100,180,0.5)", width=1.5, dash="dot"),
         hovertemplate="TextBlob: %{y:.3f}<extra></extra>",
     ))
-    if has_finbert:
-        fig.add_trace(go.Scatter(
-            x=daily["date"], y=daily["finbert_score"],
-            mode="lines", name="DistilRoBERTa",
-            line=dict(color="rgba(100,200,255,0.5)", width=1.5, dash="dot"),
-            hovertemplate="DistilRoBERTa: %{y:.3f}<extra></extra>",
-        ))
+
 
     # ── Connector line ────────────────────────────────────────────────────────
     fig.add_trace(go.Scatter(
@@ -1253,21 +1198,8 @@ def build_sentiment_trend(df: pd.DataFrame) -> go.Figure:
         sub  = daily[mask]
         if sub.empty:
             continue
-        # Build customdata with or without finbert
-        if has_finbert:
-            cdata = np.stack([sub["titles"], sub["article_count"],
-                              sub["compound"], sub["vader_score"],
-                              sub["textblob_score"], sub["finbert_score"]], axis=1)
-            hover = (
-                "<b>%{x|%d %B %Y}</b><br>"
-                "Combined: <b>%{customdata[2]:.3f}</b><br>"
-                "VADER: %{customdata[3]:.3f} &nbsp;|&nbsp; "
-                "TextBlob: %{customdata[4]:.3f} &nbsp;|&nbsp; "
-                "DistilRoBERTa: %{customdata[5]:.3f}<br>"
-                "Articles: <b>%{customdata[1]}</b><br>"
-                "%{customdata[0]}<extra></extra>"
-            )
-        else:
+        # Customdata: titles, article_count, compound, vader, textblob
+        if True:
             cdata = np.stack([sub["titles"], sub["article_count"],
                               sub["compound"], sub["vader_score"],
                               sub["textblob_score"]], axis=1)
@@ -1327,7 +1259,6 @@ def resolve_asset(asset_type: str, session_key: str, df_companies: pd.DataFrame)
         "Russell 2000":     "^RUT",
         "VIX (Fear Index)": "^VIX",
         # ── Asian Indices ─────────────────────────────────────────────────────
-        "SGX Nifty":        "^NSEI",      # proxy — SGX Nifty not on yfinance free
         "Nikkei 225":       "^N225",
         "Hang Seng":        "^HSI",
         "Shanghai Comp.":   "000001.SS",
@@ -1804,12 +1735,20 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
                 if warning_html:
                     st.markdown(warning_html, unsafe_allow_html=True)
 
-            # ── 1d: resample both to 30-min buckets, correlate returns ────────
+            # ── 1d: use raw 5-min candles → ~75 return points ───────────────
+            # No resampling — keep all candles, compute pct_change, merge on
+            # exact timestamp. Same-market pairs get ~75 overlap points.
+            # Cross-market with no hour overlap shows a clear message.
             if period == "1d":
-                ret_a = _to_returns(ca_df_a, "A", freq="30min")
-                ret_b = _to_returns(ca_df_b, "B", freq="30min")
+                ret_a = _to_returns(ca_df_a, "A")   # no freq = raw candles
+                ret_b = _to_returns(ca_df_b, "B")
                 merged_ret = pd.concat([ret_a, ret_b], axis=1).dropna()
-                if len(merged_ret) >= 3:
+                if len(merged_ret) >= 15:
+                    corr = merged_ret["A"].corr(merged_ret["B"])
+                    r2   = corr ** 2
+                    _render_stats(corr, r2, len(merged_ret), period)
+                elif len(merged_ret) >= 3:
+                    # Some overlap but below reliable threshold — show with warning
                     corr = merged_ret["A"].corr(merged_ret["B"])
                     r2   = corr ** 2
                     _render_stats(corr, r2, len(merged_ret), period)
@@ -1817,56 +1756,78 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
                     st.markdown(
                         "<div style='background:#131929;border:1px solid #f59e0b;"
                         "border-radius:8px;padding:12px;font-size:0.82rem;color:#f59e0b;'>"
-                        "⚠️ Insufficient overlapping 1d data to compute correlation. "
-                        "This typically happens for cross-market pairs (e.g. Nifty vs S&P 500) "
-                        "that trade in different timezones with no overlapping hours.</div>",
+                        "⚠️ No overlapping 1d trading hours between these two assets. "
+                        "This is expected for cross-market pairs like Nifty vs S&P 500 "
+                        "which trade in different timezones. Try 5d or 1mo instead.</div>",
                         unsafe_allow_html=True
                     )
 
-            # ── 5d: daily returns, same-day + 1-day lagged ────────────────────
+            # ── 5d: use raw 15-min candles → ~375 return points ──────────────
+            # Same approach — raw candles, pct_change, merge on exact timestamp.
+            # Also compute 1-day lagged correlation using daily returns alongside.
             elif period == "5d":
-                ret_a = _to_returns(ca_df_a, "A", freq="1D")
-                ret_b = _to_returns(ca_df_b, "B", freq="1D")
+                # Primary: 15-min returns on all overlapping timestamps
+                ret_a = _to_returns(ca_df_a, "A")
+                ret_b = _to_returns(ca_df_b, "B")
                 merged_ret = pd.concat([ret_a, ret_b], axis=1).dropna()
-                if len(merged_ret) >= 3:
+
+                # Lagged: daily returns, shift A by 1 day to predict B next day
+                ret_a_daily = _to_returns(ca_df_a, "A", freq="1D")
+                ret_b_daily = _to_returns(ca_df_b, "B", freq="1D")
+                lagged = pd.concat(
+                    [ret_a_daily.shift(1).rename("A_lag"), ret_b_daily], axis=1
+                ).dropna()
+                lc  = lagged["A_lag"].corr(lagged["B"]) if len(lagged) >= 3 else None
+                lr2 = lc ** 2 if lc is not None else None
+
+                if len(merged_ret) >= 15:
                     corr = merged_ret["A"].corr(merged_ret["B"])
                     r2   = corr ** 2
-                    # Lagged: shift A back 1 day to see if A predicts B next day
-                    lagged = pd.concat(
-                        [ret_a.shift(1).rename("A_lag"), ret_b], axis=1
-                    ).dropna()
-                    if len(lagged) >= 3:
-                        lc = lagged["A_lag"].corr(lagged["B"])
-                        lr2 = lc ** 2
-                    else:
-                        lc = lr2 = None
+                    _render_stats(corr, r2, len(merged_ret), period,
+                                  lagged_corr=lc, lagged_r2=lr2)
+                elif len(merged_ret) >= 3:
+                    corr = merged_ret["A"].corr(merged_ret["B"])
+                    r2   = corr ** 2
                     _render_stats(corr, r2, len(merged_ret), period,
                                   lagged_corr=lc, lagged_r2=lr2)
                 else:
-                    st.markdown(
-                        "<div style='background:#131929;border:1px solid #f59e0b;"
-                        "border-radius:8px;padding:12px;font-size:0.82rem;color:#f59e0b;'>"
-                        "⚠️ Insufficient overlapping 5d data. Cross-market pairs with "
-                        "different trading calendars may have few matching dates.</div>",
-                        unsafe_allow_html=True
-                    )
+                    # Zero intraday overlap — fall back to daily returns only
+                    merged_daily = pd.concat([ret_a_daily, ret_b_daily], axis=1).dropna()
+                    if len(merged_daily) >= 3:
+                        corr = merged_daily["A"].corr(merged_daily["B"])
+                        r2   = corr ** 2
+                        _render_stats(corr, r2, len(merged_daily), period,
+                                      lagged_corr=lc, lagged_r2=lr2)
+                    else:
+                        st.markdown(
+                            "<div style='background:#131929;border:1px solid #f59e0b;"
+                            "border-radius:8px;padding:12px;font-size:0.82rem;color:#f59e0b;'>"
+                            "⚠️ Insufficient overlapping 5d data for this asset pair. "
+                            "Cross-market pairs with different trading calendars may have "
+                            "few matching timestamps. Try 1mo for meaningful results.</div>",
+                            unsafe_allow_html=True
+                        )
 
-            # ── 1mo+: price-based correlation (existing reliable approach) ────
+            # ── 1mo+: daily returns (switched from price levels) ──────────────
+            # Returns-based is more accurate than price levels which can show
+            # spurious correlation between two unrelated bull-market assets.
             else:
-                def _prep(df, col):
-                    d = df[["Date","Close"]].rename(columns={"Close": col}).copy()
-                    d["Date"] = pd.to_datetime(d["Date"]).dt.normalize()
-                    d = d.drop_duplicates(subset=["Date"]).sort_values("Date")
-                    return d
-                merged = pd.merge(_prep(ca_df_a,"A"), _prep(ca_df_b,"B"),
-                                  on="Date", how="inner")
-                if len(merged) >= 10:
-                    corr = merged["A"].corr(merged["B"])
+                ret_a_d = _to_returns(ca_df_a, "A", freq="1D")
+                ret_b_d = _to_returns(ca_df_b, "B", freq="1D")
+                merged_d = pd.concat([ret_a_d, ret_b_d], axis=1).dropna()
+                if len(merged_d) >= 10:
+                    corr = merged_d["A"].corr(merged_d["B"])
                     r2   = corr ** 2
-                    _render_stats(corr, r2, len(merged), period)
+                    _render_stats(corr, r2, len(merged_d), period)
 
         except Exception:
-            pass
+            st.markdown(
+                "<div style='background:#131929;border:1px solid #ff4b6e;"
+                "border-radius:8px;padding:10px;font-size:0.80rem;color:#ff4b6e;'>"
+                "⚠️ Could not compute correlation — insufficient or mismatched data "
+                "for the selected period and asset pair.</div>",
+                unsafe_allow_html=True
+            )
 
         kpi_cols = st.columns(2)
         for col, df, label, color in [
@@ -1920,13 +1881,12 @@ if not news_df.empty:
 
 # ── News Feed ─────────────────────────────────────────────────────────────────
 news_keyword = get_news_keyword(primary_name)
-scorer_label = news_df["scorer"].iloc[0] if not news_df.empty and "scorer" in news_df.columns else "VADER"
-scorer_note  = news_df["scorer_note"].iloc[0] if not news_df.empty and "scorer_note" in news_df.columns else ""
-scorer_color = "#00d4aa" if "DistilRoBERTa" in scorer_label else "#a78bfa" if "TextBlob" in scorer_label else "#ffd166"
+scorer_label = "VADER + TextBlob"
+scorer_color = "#a78bfa"
 scorer_badge = f"<span style='font-size:0.72rem;background:#1a2035;border:1px solid {scorer_color};color:{scorer_color};padding:2px 8px;border-radius:20px;margin-left:8px'>{scorer_label}</span>"
 st.markdown(f"### 🗞️ Latest News &nbsp;<span style='font-size:0.8rem;color:#5c7cfa'>searching: '{news_keyword}'</span>{scorer_badge}",
             unsafe_allow_html=True)
-# DistilRoBERTa failures are silent — VADER+TextBlob always covers
+
 if not news_df.empty:
     filt = st.radio("Filter", ["All","Positive","Negative","Neutral"],
                     horizontal=True, label_visibility="collapsed")
@@ -1936,8 +1896,6 @@ if not news_df.empty:
         v_score = row.get("vader_score", row["compound"])
         t_score = row.get("textblob_score", 0.0)
         score_detail = f"V:{v_score:+.2f} T:{t_score:+.2f}"
-        if row.get("finbert_score") is not None and not pd.isna(row["finbert_score"]):
-            score_detail += f" R:{row['finbert_score']:+.2f}"
         st.markdown(f"""
         <div class='news-item'>
             <div class='news-title'>
@@ -1956,6 +1914,4 @@ else:
 if not news_df.empty:
     with st.expander("🔍 Raw sentiment data"):
         cols = ["source","title","label","compound","vader_score","textblob_score"]
-        if "finbert_score" in news_df.columns:
-            cols.append("finbert_score")
         st.dataframe(news_df[cols], use_container_width=True)
