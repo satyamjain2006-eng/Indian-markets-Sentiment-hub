@@ -1033,9 +1033,9 @@ def fetch_news(company_name: str) -> pd.DataFrame:
     hours_ago = (now - pub_safe).dt.total_seconds().div(3600).clip(lower=0).fillna(48)
     df["recency_weight"] = pd.cut(
         hours_ago,
-        bins=[-1, 2, 6, 12, 24, float("inf")],
-        labels=[1.0, 0.85, 0.70, 0.55, 0.35]
-    ).astype(float).fillna(0.35)
+        bins=[-1, 2, 6, 12, 24, 72, 168, float("inf")],
+        labels=[1.0, 0.85, 0.70, 0.55, 0.30, 0.15, 0.08]
+    ).astype(float).fillna(0.08)
 
     # ── Method E: momentum detection ─────────────────────────────────────────
     df["_date"] = df["published_dt"].dt.date
@@ -1053,6 +1053,9 @@ def fetch_news(company_name: str) -> pd.DataFrame:
             momentum_signal = "bullish"
     df["momentum_signal"] = momentum_signal
 
+    # Cap individual scores at ±0.70 — prevents one extreme article
+    # (e.g. generic explainer with −0.82) from dominating the average
+    df["compound"] = df["compound"].clip(-0.70, 0.70)
     df["label"] = df["compound"].apply(label_from_score)
     df["published_fmt"] = df["published_dt"].dt.strftime("%-d %B %Y, %I:%M %p").fillna(df["published"])
     df = df.drop(columns=["score_text","boost","_date"], errors="ignore")
@@ -1312,8 +1315,34 @@ def resolve_asset(asset_type: str, session_key: str, df_companies: pd.DataFrame)
     name_key   = f"{session_key}_name"
     ticker_key = f"{session_key}_ticker"
     CA_ASSETS_INDEX = {
-        "Nifty 50":"^NSEI","Sensex":"^BSESN",
-        "Nifty Bank":"^NSEBANK","Nifty Midcap 50":"^NSEMDCP50",
+        # ── Indian Indices ────────────────────────────────────────────────────
+        "Nifty 50":         "^NSEI",
+        "Sensex":           "^BSESN",
+        "Nifty Bank":       "^NSEBANK",
+        "Nifty Midcap 50":  "^NSEMDCP50",
+        # ── US Indices ────────────────────────────────────────────────────────
+        "S&P 500":          "^GSPC",
+        "Nasdaq 100":       "^NDX",
+        "Dow Jones":        "^DJI",
+        "Russell 2000":     "^RUT",
+        "VIX (Fear Index)": "^VIX",
+        # ── Asian Indices ─────────────────────────────────────────────────────
+        "SGX Nifty":        "^NSEI",      # proxy — SGX Nifty not on yfinance free
+        "Nikkei 225":       "^N225",
+        "Hang Seng":        "^HSI",
+        "Shanghai Comp.":   "000001.SS",
+        "KOSPI (Korea)":    "^KS11",
+        "ASX 200":          "^AXJO",
+        "Straits Times":    "^STI",
+        # ── European Indices ──────────────────────────────────────────────────
+        "FTSE 100":         "^FTSE",
+        "DAX (Germany)":    "^GDAXI",
+        "CAC 40 (France)":  "^FCHI",
+        "Euro Stoxx 50":    "^STOXX50E",
+        # ── Other ─────────────────────────────────────────────────────────────
+        "Tadawul (Saudi)":  "^TASI.SR",
+        "MSCI World":       "URTH",
+        "MSCI EM":          "EEM",
     }
     POPULAR_FOREX_SHORT = {
         "USD/INR":"INR=X","EUR/USD":"EURUSD=X","GBP/USD":"GBPUSD=X",
@@ -1324,7 +1353,7 @@ def resolve_asset(asset_type: str, session_key: str, df_companies: pd.DataFrame)
         "USD/ZAR":"ZAR=X","USD/BRL":"BRL=X","USD/MXN":"MXN=X",
         "USD/SAR":"SAR=X","USD/HKD":"HKD=X",
     }
-    if asset_type == "📈 Index":
+    if asset_type in ("📈 Index", "📈 Index (India + Global)"):
         pick = st.selectbox("Select Index", list(CA_ASSETS_INDEX.keys()),
                             key=f"{session_key}_idx_pick", label_visibility="collapsed")
         st.session_state[name_key]   = pick
@@ -1541,7 +1570,7 @@ with st.sidebar:
     ca_name_a = ca_ticker_a = ca_name_b = ca_ticker_b = None
 
     if compare_on:
-        ASSET_TYPES = ["📈 Index", "🏅 Commodity", "₿ Crypto", "💱 Forex", "🇮🇳 Stock"]
+        ASSET_TYPES = ["📈 Index (India + Global)", "🏅 Commodity", "₿ Crypto", "💱 Forex", "🇮🇳 Stock"]
         st.markdown("**Asset A**")
         type_a = st.radio("Type A", ASSET_TYPES, key="ca_type_a",
                           horizontal=False, label_visibility="collapsed")
