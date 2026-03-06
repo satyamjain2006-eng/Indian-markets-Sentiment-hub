@@ -2390,16 +2390,48 @@ if not news_df.empty:
         """, unsafe_allow_html=True)
 else:
     if asset_type == "stock":
+        # ── Zero stock articles — show banner + general market news ──────────
         st.markdown(
             f"<div style='background:#1a1a2e;border:1px solid #ff4b6e;border-radius:8px;"
-            f"padding:14px;text-align:center;'>"
-            f"<div style='font-size:1.4rem;margin-bottom:6px;'>📭</div>"
-            f"<div style='color:#ff4b6e;font-weight:600;margin-bottom:4px;'>No articles found for {primary_name}</div>"
-            f"<div style='color:#8892a4;font-size:0.82rem;'>This stock may have no recent news coverage, or try searching "
-            f"with a shorter name (e.g. 'Adani' instead of 'Adani Enterprises Limited').</div>"
+            f"padding:14px;margin-bottom:16px;'>"
+            f"<div style='display:flex;align-items:center;gap:10px;'>"
+            f"<span style='font-size:1.4rem;'>📭</span>"
+            f"<div>"
+            f"<div style='color:#ff4b6e;font-weight:600;margin-bottom:2px;'>No articles found for {primary_name}</div>"
+            f"<div style='color:#8892a4;font-size:0.82rem;'>This stock may have no recent news coverage. "
+            f"Try searching with a shorter name (e.g. 'Adani' instead of 'Adani Enterprises Limited').<br>"
+            f"Showing general Indian market news below.</div>"
+            f"</div></div>"
             f"</div>",
             unsafe_allow_html=True
         )
+        # Fetch general market news as fallback
+        with st.spinner("Loading general market news…"):
+            general_df = fetch_news("Nifty 50", symbol="^NSEI", asset_type="index")
+        if not general_df.empty:
+            st.markdown(
+                "<div style='color:#8892a4;font-size:0.82rem;margin-bottom:10px;"
+                "padding:6px 10px;background:#0e1320;border-radius:6px;"
+                "border-left:3px solid #4a5568;'>"
+                "📰 General Indian market news</div>",
+                unsafe_allow_html=True
+            )
+            for _, row in general_df.head(10).iterrows():
+                bc = badge_class(row["label"])
+                v_score = row.get("vader_score", row["compound"])
+                t_score = row.get("textblob_score", 0.0)
+                score_detail = f"V:{v_score:+.2f} T:{t_score:+.2f}"
+                st.markdown(f"""
+                <div class='news-item'>
+                    <div class='news-title'>
+                        <a href='{row["link"]}' target='_blank' style='color:inherit;text-decoration:none'>
+                            {row['title']}
+                        </a>
+                        <span class='badge {bc}'>{row['label']} {row['compound']:+.3f}</span>
+                    </div>
+                    <div class='news-meta'>📡 {row['source']} &nbsp;|&nbsp; {score_detail} &nbsp;|&nbsp; {row['published_fmt']}</div>
+                </div>
+                """, unsafe_allow_html=True)
     else:
         st.info("No news found. Try a different asset or check your connection.")
 
