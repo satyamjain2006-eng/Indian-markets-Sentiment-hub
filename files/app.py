@@ -661,39 +661,53 @@ _FIN_STRONG_POS = {"rally","rallied","soar","soared","surge","surged",
                    "all-time high","record high","breakout","bull run","fii buying"}
 
 # ── Commodity context keywords ────────────────────────────────────────────────
-# For commodities, supply shocks / geopolitical tension / production cuts = PRICE UP = POSITIVE
-# for the commodity investor. These are NEUTRAL or NEGATIVE in stock context
-# but POSITIVE in commodity context.
-_COMMODITY_SUPPLY_SHOCK_POS = {
-    # Geopolitical — restricts supply → price up
+
+# SHORT-TERM supply shock signals — immediate price impact for commodity holder
+# These fire within hours/days of the event
+_COMMODITY_ST_POS = {
+    # Geopolitical supply disruption
     "war","iran","israel","russia","ukraine","conflict","tension","sanction",
-    "disruption","attack","strike","crisis","hostility","escalation",
-    # OPEC / production cuts → price up
-    "opec","production cut","output cut","supply cut","quota","cartel",
+    "disruption","attack","strike","crisis","hostility","escalation","embargo",
+    # OPEC / production cuts
+    "opec","production cut","output cut","supply cut","quota",
     "supply disruption","supply shortage","supply deficit","tight supply",
-    # Natural disruptions → price up
+    # Physical disruptions
     "hurricane","storm","pipeline","outage","shutdown","refinery fire",
-    # Demand surge → price up
-    "demand surge","demand rise","demand increase","peak demand","winter demand",
-}
-_COMMODITY_SUPPLY_SHOCK_NEG = {
-    # Oversupply → price down
-    "oversupply","surplus","glut","excess supply","production increase",
-    "output increase","opec increase","shale","US production","inventory build",
-    "demand slump","demand fall","demand weakness","recession demand",
-    "ceasefire","peace deal","supply restored","production resumed",
+    "explosion","sabotage","blockade","strait","hormuz",
+    # Demand spike
+    "demand surge","demand rise","peak demand","winter demand","cold snap",
 }
 
-# Per-commodity price-rise language that VADER misreads as neutral/negative
-# e.g. "crude at 6-month high" — VADER sees no sentiment, we know it's positive for holder
+# SHORT-TERM oversupply signals — immediate price drop
+_COMMODITY_ST_NEG = {
+    "ceasefire","peace deal","supply restored","production resumed",
+    "oversupply","surplus","glut","inventory build","stockpile",
+    "opec increase","output increase","shale boom",
+}
+
+# LONG-TERM structural signals — these affect demand over months/years
+# VADER's negative score is KEPT for these — they have valid long-term bearish impact
+_COMMODITY_LT_NEG = {
+    # Trade policy — destroys demand over months
+    "tariff","trade war","trade dispute","import duty","export ban",
+    "protectionism","sanctions regime",
+    # Macro demand destruction
+    "recession","slowdown","gdp contraction","demand destruction",
+    "industrial slowdown","manufacturing slump","china slowdown",
+    "electric vehicle","ev adoption","energy transition","renewables replacing",
+    # Structural oversupply
+    "peak oil demand","long term surplus","shale revolution",
+}
+
+# Price movement language — VADER misses these as neutral
 _PRICE_RISE_POS = {
-    "month high","year high","week high","multi-year high","record",
-    "above","tops","crosses","climbs to","rises to","jumps to",
-    "six month","6 month","52-week","all time",
+    "month high","year high","week high","multi-year high","record high",
+    "tops","crosses","climbs to","rises to","jumps to","hits high",
+    "six month high","6 month high","52-week high","all time high",
 }
 _PRICE_FALL_NEG = {
     "month low","year low","week low","falls to","drops to","slides to",
-    "below","dips","tumbles to","slips to",
+    "hits low","dips below","tumbles to","slips to","multi-year low",
 }
 
 def finance_boost_series(texts: pd.Series, asset_type: str = "stock") -> pd.Series:
@@ -714,18 +728,20 @@ def finance_boost_series(texts: pd.Series, asset_type: str = "stock") -> pd.Seri
         boost += lower.str.contains(kw, regex=False, na=False) * val
 
     if asset_type == "commodity":
-        # Supply shock keywords → POSITIVE for commodity holder
-        for kw in _COMMODITY_SUPPLY_SHOCK_POS:
-            boost += lower.str.contains(kw, regex=False, na=False) * 0.15
-        # Oversupply keywords → NEGATIVE for commodity holder
-        for kw in _COMMODITY_SUPPLY_SHOCK_NEG:
+        # Short-term supply shock → POSITIVE (immediate price spike)
+        for kw in _COMMODITY_ST_POS:
+            boost += lower.str.contains(kw, regex=False, na=False) * 0.18
+        # Short-term oversupply → NEGATIVE
+        for kw in _COMMODITY_ST_NEG:
             boost -= lower.str.contains(kw, regex=False, na=False) * 0.15
-        # Price rise language → POSITIVE
-        for kw in _PRICE_RISE_POS:
-            boost += lower.str.contains(kw, regex=False, na=False) * 0.10
-        # Price fall language → NEGATIVE
-        for kw in _PRICE_FALL_NEG:
+        # Long-term structural bearish — lighter weight, demand erosion over time
+        for kw in _COMMODITY_LT_NEG:
             boost -= lower.str.contains(kw, regex=False, na=False) * 0.10
+        # Price movement language
+        for kw in _PRICE_RISE_POS:
+            boost += lower.str.contains(kw, regex=False, na=False) * 0.12
+        for kw in _PRICE_FALL_NEG:
+            boost -= lower.str.contains(kw, regex=False, na=False) * 0.12
 
     elif asset_type == "crypto":
         # Crypto reacts similarly to commodities for supply/demand signals
@@ -939,12 +955,39 @@ def fetch_news(company_name: str) -> pd.DataFrame:
     df["score_text"]  = df["title"] + " " + desc_trimmed.where(desc_trimmed.str.strip() != "", "")
     df["score_text"]  = df["score_text"].str.strip()
 
-    # ── Base model scores (vectorised where possible) ─────────────────────────
+    # ── Base model scores ─────────────────────────────────────────────────────
     df["vader_score"]    = df["score_text"].apply(vader_score)
     df["textblob_score"] = df["score_text"].apply(textblob_score)
 
-    # ── Method A: finance keyword boost — context-aware per asset type ────────
-    df["boost"]          = finance_boost_series(df["score_text"], asset_type=asset_type)
+    # ── Method A: context-aware keyword boost ────────────────────────────────
+    df["boost"] = finance_boost_series(df["score_text"], asset_type=asset_type)
+
+    if asset_type == "commodity":
+        # VADER/TextBlob are unreliable for commodities — "war","conflict" are
+        # hardcoded deeply negative in VADER even when they signal price rises.
+        # We zero VADER/TextBlob ONLY for pure short-term supply shock articles
+        # that have NO long-term bearish structural terms.
+        # If article also contains tariff/recession/trade war → keep VADER's
+        # negative signal since those ARE genuinely bearish long-term.
+        lower_st = df["score_text"].str.lower().fillna("")
+
+        has_st_shock = (
+            lower_st.str.contains(
+                "|".join(_COMMODITY_ST_POS), regex=True, na=False
+            )
+        )
+        has_lt_bearish = (
+            lower_st.str.contains(
+                "|".join(_COMMODITY_LT_NEG), regex=True, na=False
+            )
+        )
+        # Pure short-term shock = has supply shock AND no long-term bearish signal
+        is_pure_st_shock = has_st_shock & ~has_lt_bearish
+
+        # Zero VADER/TextBlob only for pure ST shock articles
+        df["vader_score"]    = df["vader_score"].where(~is_pure_st_shock, 0.0)
+        df["textblob_score"] = df["textblob_score"].where(~is_pure_st_shock, 0.0)
+
     df["vader_score"]    = (df["vader_score"]    + df["boost"]).clip(-1.0, 1.0).round(4)
     df["textblob_score"] = (df["textblob_score"] + df["boost"]).clip(-1.0, 1.0).round(4)
     df["combined_score"] = ((df["vader_score"] + df["textblob_score"]) / 2).round(4)
@@ -1780,4 +1823,3 @@ if not news_df.empty:
         if "finbert_score" in news_df.columns:
             cols.append("finbert_score")
         st.dataframe(news_df[cols], use_container_width=True)
-    
