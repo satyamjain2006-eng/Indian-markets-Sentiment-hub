@@ -2282,12 +2282,11 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
                     r2   = corr ** 2
                     _render_stats(corr, r2, len(merged_ret), period)
 
-        except Exception:
+        except Exception as _corr_err:
             st.markdown(
-                "<div style='background:#131929;border:1px solid #ff4b6e;"
-                "border-radius:8px;padding:10px;font-size:0.80rem;color:#ff4b6e;'>"
-                "⚠️ Could not compute correlation — insufficient or mismatched data "
-                "for the selected period and asset pair.</div>",
+                f"<div style='background:#131929;border:1px solid #ff4b6e;"
+                f"border-radius:8px;padding:10px;font-size:0.80rem;color:#ff4b6e;'>"
+                f"⚠️ Correlation error: {type(_corr_err).__name__}: {_corr_err}</div>",
                 unsafe_allow_html=True
             )
 
