@@ -734,9 +734,9 @@ def finance_boost_series(texts: pd.Series, asset_type: str = "stock") -> pd.Seri
         # Short-term oversupply → NEGATIVE
         for kw in _COMMODITY_ST_NEG:
             boost -= lower.str.contains(kw, regex=False, na=False) * 0.15
-        # Long-term structural bearish — lighter weight, demand erosion over time
-        for kw in _COMMODITY_LT_NEG:
-            boost -= lower.str.contains(kw, regex=False, na=False) * 0.10
+        # Long-term structural terms (tariff, recession etc.) — no penalty applied
+        # because this app focuses on CURRENT sentiment, not future outlook.
+        # These terms are only used to decide whether to preserve VADER's score.
         # Price movement language
         for kw in _PRICE_RISE_POS:
             boost += lower.str.contains(kw, regex=False, na=False) * 0.12
@@ -981,12 +981,14 @@ def fetch_news(company_name: str) -> pd.DataFrame:
                 "|".join(_COMMODITY_LT_NEG), regex=True, na=False
             )
         )
-        # Pure short-term shock = has supply shock AND no long-term bearish signal
-        is_pure_st_shock = has_st_shock & ~has_lt_bearish
-
-        # Zero VADER/TextBlob only for pure ST shock articles
-        df["vader_score"]    = df["vader_score"].where(~is_pure_st_shock, 0.0)
-        df["textblob_score"] = df["textblob_score"].where(~is_pure_st_shock, 0.0)
+        # For supply-shock commodity articles: reduce VADER/TextBlob to 20% weight.
+        # VADER is biased — "war","conflict","disruption" are hardcoded deeply
+        # negative in its lexicon even when they signal price rises for commodity holders.
+        # We don't zero it (preserves some genuine signal) but reduce its influence
+        # so our commodity-aware boost can drive the final score.
+        # No impact on non-commodity assets or non-supply-shock articles.
+        df["vader_score"]    = df["vader_score"].where(~has_st_shock, df["vader_score"] * 0.20)
+        df["textblob_score"] = df["textblob_score"].where(~has_st_shock, df["textblob_score"] * 0.20)
 
     df["vader_score"]    = (df["vader_score"]    + df["boost"]).clip(-1.0, 1.0).round(4)
     df["textblob_score"] = (df["textblob_score"] + df["boost"]).clip(-1.0, 1.0).round(4)
