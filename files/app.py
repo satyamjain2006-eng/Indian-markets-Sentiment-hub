@@ -1378,12 +1378,13 @@ def fetch_news(company_name: str) -> pd.DataFrame:
                             "technology","energy","power","finance","financial",
                             "capital","ventures","resources","infrastructure"}
         def _strip_company_words(text: str) -> str:
+            import re as _re
             if not _company_words:
                 return text
             t = text
             for w in _company_words:
                 if len(w) >= 4:
-                    t = re.sub(r"" + re.escape(w) + r"", " ", t, flags=re.IGNORECASE)
+                    t = _re.sub(r"(?<!\w)" + _re.escape(w) + r"(?!\w)", " ", t, flags=_re.IGNORECASE)
             return t
 
         boost_text   = df["score_text"].apply(_strip_company_words)
