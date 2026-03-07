@@ -357,7 +357,7 @@ def get_rss_urls(keyword: str, symbol: str, asset_type: str = "stock") -> dict:
 
 def parse_rss2json(url: str, source_name: str) -> list:
     try:
-        resp = requests.get(url, timeout=4)
+        resp = requests.get(url, timeout=6)
         data = resp.json()
         if data.get("status") != "ok":
             return []
@@ -658,7 +658,7 @@ def _score_via_groq(titles: list[str], asset_type: str) -> list[dict] | None:
             json={"model": "llama-3.3-70b-versatile",
                   "messages": [{"role": "user", "content": prompt}],
                   "temperature": 0.0,
-                  "max_tokens": 1500},
+                  "max_tokens": 2000},
             timeout=15,
         )
         if resp.status_code == 429:
@@ -683,10 +683,22 @@ def _score_via_groq(titles: list[str], asset_type: str) -> list[dict] | None:
         return None
 
 def _groq_score_batch(titles: list[str], asset_type: str = "stock") -> list[dict] | None:
-    """LLM scorer — Groq (Llama 3) primary, None triggers VADER+TextBlob fallback."""
+    """LLM scorer — Groq (Llama 3) primary, None triggers VADER+TextBlob fallback.
+    Batches large title lists into chunks of 25 to avoid token limits."""
     if not titles:
         return None
-    return _score_via_groq(titles, asset_type)
+    CHUNK = 25
+    if len(titles) <= CHUNK:
+        return _score_via_groq(titles, asset_type)
+    # Multiple chunks — merge results
+    all_results = []
+    for i in range(0, len(titles), CHUNK):
+        chunk = titles[i:i+CHUNK]
+        result = _score_via_groq(chunk, asset_type)
+        if result is None:
+            return None  # Any chunk failure → fall back to VADER entirely
+        all_results.extend(result)
+    return all_results
 
 # ── Method A: Finance-specific keyword booster ────────────────────────────────
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1331,7 +1343,7 @@ def fetch_news(company_name: str, symbol: str = "") -> pd.DataFrame:
         futures = {executor.submit(fetch_source, src, url): src
                    for src, url in rss_urls.items()}
         # Hard 6s wall-clock deadline — don't wait for stragglers
-        for future in as_completed(futures, timeout=6):
+        for future in as_completed(futures, timeout=10):
             try:
                 all_articles.extend(future.result())
             except Exception:
