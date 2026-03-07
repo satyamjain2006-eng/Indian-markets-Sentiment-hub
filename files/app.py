@@ -582,9 +582,7 @@ def _groq_score_batch(titles: list[str], asset_type: str = "stock") -> list[dict
     try:
         import requests, json
         api_key = st.secrets.get("GROQ_API_KEY", "")
-        print(f"[Groq] called: n={len(titles)}, asset={asset_type}, key={'SET' if api_key else 'EMPTY'}")
         if not api_key:
-            print("[Groq] RETURNING NONE — api_key is empty")
             return None
 
         asset_context = {
@@ -1138,7 +1136,7 @@ def badge_class(label):
     return {"Positive":"b-pos","Negative":"b-neg","Neutral":"b-neu"}.get(label,"")
 
 
-@st.cache_data(ttl=300, max_entries=10, show_spinner=False)
+@st.cache_data(ttl=311, max_entries=10, show_spinner=False)
 def fetch_news(company_name: str, symbol: str = "", asset_type: str = "") -> pd.DataFrame:
     keyword  = get_news_keyword(company_name)
 
@@ -1370,10 +1368,7 @@ def fetch_news(company_name: str, symbol: str = "", asset_type: str = "") -> pd.
     # ── Scoring pipeline ──────────────────────────────────────────────────────
     # Primary: Groq (Llama 3) — understands sentence context
     # Fallback: VADER + TextBlob + keyword boost — if Groq unavailable
-    _groq_debug_key = st.secrets.get("GROQ_API_KEY", "")
-    print(f"[Groq-fetch_news] key={'SET' if _groq_debug_key else 'EMPTY'}, titles={len(df)}, asset={asset_type}")
     groq_results = _groq_score_batch(df["title"].tolist(), asset_type=asset_type) if not df.empty else None
-    print(f"[Groq-fetch_news] result={'OK len='+str(len(groq_results)) if groq_results else 'NONE/FAILED'}")
 
     if groq_results is not None:
         # ── Groq path ────────────────────────────────────────────────────────
