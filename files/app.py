@@ -2180,11 +2180,14 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
         fig_ca = go.Figure()
         for df, label, color in [(ca_df_a, ca_name_a, "#5c7cfa"), (ca_df_b, ca_name_b, "#00d4aa")]:
             d = df[["Date","Close"]].copy()
-            # Strip tz from Date so drop_duplicates works across tz-aware/naive
-            d["Date"] = pd.to_datetime(d["Date"]).dt.tz_localize(None)                         if pd.to_datetime(d["Date"]).dt.tz is not None                         else pd.to_datetime(d["Date"])
-            # For periods with weekly/monthly candles, normalize to date only
+            # Robustly strip tz — handles tz-aware, tz-naive, and mixed
+            _dates = pd.to_datetime(d["Date"], utc=True).dt.tz_localize(None)
+            d["Date"] = _dates
+            # Normalize to date only (removes time component, handles weekly candles)
             d["Date"] = d["Date"].dt.normalize()
             d = d.drop_duplicates(subset=["Date"]).sort_values("Date").reset_index(drop=True)
+            if d.empty:
+                continue
             close = d["Close"].astype(float)
             norm  = close / close.iloc[0] * 100
             fig_ca.add_trace(go.Scatter(
