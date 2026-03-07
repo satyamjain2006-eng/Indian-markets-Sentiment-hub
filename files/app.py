@@ -2191,14 +2191,19 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
                 return returns
 
             def _render_stats(corr, r2, n_pts, period, is_lagged=False,
-                               lagged_corr=None, lagged_r2=None):
-                corr_label = (
-                    "Strong positive"   if corr > 0.7  else
-                    "Moderate positive" if corr > 0.3  else
-                    "Weak / no"         if corr > -0.3 else
-                    "Moderate negative" if corr > -0.7 else "Strong negative"
-                )
-                corr_color = "#00d4aa" if corr > 0.3 else "#ff4b6e" if corr < -0.3 else "#ffd166"
+                               lagged_corr=None, lagged_r2=None, is_cross_tz=False):
+                def _corr_label(c):
+                    return (
+                        "Strong positive"   if c > 0.7  else
+                        "Moderate positive" if c > 0.3  else
+                        "Weak / no"         if c > -0.3 else
+                        "Moderate negative" if c > -0.7 else "Strong negative"
+                    )
+                def _corr_color(c):
+                    return "#00d4aa" if c > 0.3 else "#ff4b6e" if c < -0.3 else "#ffd166"
+
+                corr_label = _corr_label(corr)
+                corr_color = _corr_color(corr)
                 r2_color   = "#00d4aa" if r2 > 0.4 else "#ffd166"
 
                 # Warning for short periods
@@ -2214,54 +2219,105 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
                         f"Use 1mo+ for statistical significance.</div>"
                     )
 
-                stat_cols = st.columns(2)
-                with stat_cols[0]:
-                    lag_note = " (same-day)" if lagged_corr is not None else ""
-                    st.markdown(
-                        f"<div style='text-align:center;padding:14px;background:#131929;"
-                        f"border-radius:10px;border:1px solid #1e2640;margin-bottom:4px'>"
-                        f"<span style='color:#6b7a99;font-size:0.78rem;text-transform:uppercase;"
-                        f"letter-spacing:0.8px'>Correlation (r){lag_note}</span><br>"
-                        f"<span style='color:{corr_color};font-size:1.8rem;font-weight:700'>{corr:+.2f}</span><br>"
-                        f"<span style='color:{corr_color};font-size:0.82rem'>{corr_label}</span>"
-                        f"</div>", unsafe_allow_html=True
-                    )
-                with stat_cols[1]:
-                    st.markdown(
-                        f"<div style='text-align:center;padding:14px;background:#131929;"
-                        f"border-radius:10px;border:1px solid #1e2640;margin-bottom:4px'>"
-                        f"<span style='color:#6b7a99;font-size:0.78rem;text-transform:uppercase;"
-                        f"letter-spacing:0.8px'>R² (explained variance)</span><br>"
-                        f"<span style='color:{r2_color};font-size:1.8rem;font-weight:700'>{r2:.2f}</span><br>"
-                        f"<span style='color:{r2_color};font-size:0.82rem'>"
-                        f"{r2*100:.1f}% of {ca_name_b}'s moves explained by {ca_name_a}</span>"
-                        f"</div>", unsafe_allow_html=True
+                # ── Cross-timezone index pair layout ─────────────────────────
+                if is_cross_tz and lagged_corr is not None:
+                    lc_color  = _corr_color(lagged_corr)
+                    lc_label  = _corr_label(lagged_corr)
+                    lr2_color = "#00d4aa" if lagged_r2 > 0.4 else "#ffd166"
+
+                    # Determine which leads which for caption
+                    _non_indian = ca_name_b if ca_name_a in _INDIAN_INDICES else ca_name_a
+                    _indian     = ca_name_a if ca_name_a in _INDIAN_INDICES else ca_name_b
+
+                    stat_cols = st.columns(3)
+                    with stat_cols[0]:
+                        st.markdown(
+                            f"<div style='text-align:center;padding:14px;background:#131929;"
+                            f"border-radius:10px;border:1px solid #1e2640;margin-bottom:4px'>"
+                            f"<span style='color:#6b7a99;font-size:0.72rem;text-transform:uppercase;"
+                            f"letter-spacing:0.8px'>Same-day (r)</span><br>"
+                            f"<span style='color:{corr_color};font-size:1.6rem;font-weight:700'>{corr:+.2f}</span><br>"
+                            f"<span style='color:{corr_color};font-size:0.78rem'>{corr_label}</span>"
+                            f"</div>", unsafe_allow_html=True
+                        )
+                    with stat_cols[1]:
+                        st.markdown(
+                            f"<div style='text-align:center;padding:14px;background:#131929;"
+                            f"border-radius:10px;border:1px solid #2a3a20;margin-bottom:4px;"
+                            f"box-shadow:0 0 0 1px #22d3ee33'>"
+                            f"<span style='color:#22d3ee;font-size:0.72rem;text-transform:uppercase;"
+                            f"letter-spacing:0.8px'>Overnight spillover (r)</span><br>"
+                            f"<span style='color:{lc_color};font-size:1.6rem;font-weight:700'>{lagged_corr:+.2f}</span><br>"
+                            f"<span style='color:{lc_color};font-size:0.78rem'>{lc_label}</span>"
+                            f"</div>", unsafe_allow_html=True
+                        )
+                    with stat_cols[2]:
+                        st.markdown(
+                            f"<div style='text-align:center;padding:14px;background:#131929;"
+                            f"border-radius:10px;border:1px solid #1e2640;margin-bottom:4px'>"
+                            f"<span style='color:#6b7a99;font-size:0.72rem;text-transform:uppercase;"
+                            f"letter-spacing:0.8px'>R² (spillover)</span><br>"
+                            f"<span style='color:{lr2_color};font-size:1.6rem;font-weight:700'>{lagged_r2:.2f}</span><br>"
+                            f"<span style='color:{lr2_color};font-size:0.78rem'>"
+                            f"{lagged_r2*100:.1f}% of {_indian}'s moves explained</span>"
+                            f"</div>", unsafe_allow_html=True
+                        )
+                    st.caption(
+                        f"💡 **Overnight spillover**: {_non_indian} closes after Indian markets. "
+                        f"What happens on {_non_indian} today reflects in {_indian} the next morning. "
+                        f"Same-day r is near zero by design — sessions don't overlap."
                     )
 
-                # Lagged correlation row for cross-market 5d
-                if lagged_corr is not None:
-                    lc_color = "#00d4aa" if lagged_corr > 0.3 else "#ff4b6e" if lagged_corr < -0.3 else "#ffd166"
-                    lr2_color = "#00d4aa" if lagged_r2 > 0.4 else "#ffd166"
-                    lag_cols = st.columns(2)
-                    with lag_cols[0]:
+                else:
+                    # ── Standard 2-column layout ─────────────────────────────
+                    stat_cols = st.columns(2)
+                    with stat_cols[0]:
+                        lag_note = " (same-day)" if lagged_corr is not None else ""
                         st.markdown(
-                            f"<div style='text-align:center;padding:10px;background:#131929;"
+                            f"<div style='text-align:center;padding:14px;background:#131929;"
                             f"border-radius:10px;border:1px solid #1e2640;margin-bottom:4px'>"
-                            f"<span style='color:#6b7a99;font-size:0.75rem;text-transform:uppercase;"
-                            f"letter-spacing:0.8px'>Lagged r (A leads B by 1 day)</span><br>"
-                            f"<span style='color:{lc_color};font-size:1.5rem;font-weight:700'>{lagged_corr:+.2f}</span>"
+                            f"<span style='color:#6b7a99;font-size:0.78rem;text-transform:uppercase;"
+                            f"letter-spacing:0.8px'>Correlation (r){lag_note}</span><br>"
+                            f"<span style='color:{corr_color};font-size:1.8rem;font-weight:700'>{corr:+.2f}</span><br>"
+                            f"<span style='color:{corr_color};font-size:0.82rem'>{corr_label}</span>"
                             f"</div>", unsafe_allow_html=True
                         )
-                    with lag_cols[1]:
+                    with stat_cols[1]:
                         st.markdown(
-                            f"<div style='text-align:center;padding:10px;background:#131929;"
+                            f"<div style='text-align:center;padding:14px;background:#131929;"
                             f"border-radius:10px;border:1px solid #1e2640;margin-bottom:4px'>"
-                            f"<span style='color:#6b7a99;font-size:0.75rem;text-transform:uppercase;"
-                            f"letter-spacing:0.8px'>Lagged R²</span><br>"
-                            f"<span style='color:{lr2_color};font-size:1.5rem;font-weight:700'>{lagged_r2:.2f}</span>"
+                            f"<span style='color:#6b7a99;font-size:0.78rem;text-transform:uppercase;"
+                            f"letter-spacing:0.8px'>R² (explained variance)</span><br>"
+                            f"<span style='color:{r2_color};font-size:1.8rem;font-weight:700'>{r2:.2f}</span><br>"
+                            f"<span style='color:{r2_color};font-size:0.82rem'>"
+                            f"{r2*100:.1f}% of {ca_name_b}'s moves explained by {ca_name_a}</span>"
                             f"</div>", unsafe_allow_html=True
                         )
-                    st.caption("Lagged r: how well yesterday's Asset A returns predict today's Asset B returns.")
+
+                    # Lagged row for 5d cross-market
+                    if lagged_corr is not None:
+                        lc_color  = _corr_color(lagged_corr)
+                        lr2_color = "#00d4aa" if lagged_r2 > 0.4 else "#ffd166"
+                        lag_cols  = st.columns(2)
+                        with lag_cols[0]:
+                            st.markdown(
+                                f"<div style='text-align:center;padding:10px;background:#131929;"
+                                f"border-radius:10px;border:1px solid #1e2640;margin-bottom:4px'>"
+                                f"<span style='color:#6b7a99;font-size:0.75rem;text-transform:uppercase;"
+                                f"letter-spacing:0.8px'>Lagged r (A leads B by 1 day)</span><br>"
+                                f"<span style='color:{lc_color};font-size:1.5rem;font-weight:700'>{lagged_corr:+.2f}</span>"
+                                f"</div>", unsafe_allow_html=True
+                            )
+                        with lag_cols[1]:
+                            st.markdown(
+                                f"<div style='text-align:center;padding:10px;background:#131929;"
+                                f"border-radius:10px;border:1px solid #1e2640;margin-bottom:4px'>"
+                                f"<span style='color:#6b7a99;font-size:0.75rem;text-transform:uppercase;"
+                                f"letter-spacing:0.8px'>Lagged R²</span><br>"
+                                f"<span style='color:{lr2_color};font-size:1.5rem;font-weight:700'>{lagged_r2:.2f}</span>"
+                                f"</div>", unsafe_allow_html=True
+                            )
+                        st.caption("Lagged r: how well yesterday's Asset A returns predict today's Asset B returns.")
 
                 # Warning shown below stats
                 if warning_html:
@@ -2370,6 +2426,27 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
                 # 1mo  → price levels (too few points for returns to be meaningful)
                 # 3mo+ → daily returns (avoids spurious +1.00 from shared bull trends)
                 # Chart always uses normalised price levels (visual consistency)
+                # Detect cross-timezone index pair
+                # Indian indices close at 3:30pm IST — before US/EU/Asian others open
+                # For Indian vs non-Indian index pairs: same-day returns are meaningless
+                # because sessions don't overlap. Use 1-day lag instead.
+                _INDIAN_INDICES = {
+                    "Nifty 50", "Sensex", "Nifty Bank", "Nifty Midcap 50"
+                }
+                _type_a = type_a if "type_a" in dir() else ""
+                _type_b = type_b if "type_b" in dir() else ""
+                _is_index_pair = (
+                    "Index" in str(st.session_state.get("ca_type_a","")) or
+                    ca_name_a in _INDIAN_INDICES or
+                    ca_name_b in _INDIAN_INDICES
+                )
+                _a_is_indian = ca_name_a in _INDIAN_INDICES
+                _b_is_indian = ca_name_b in _INDIAN_INDICES
+                _is_cross_tz_index = (
+                    (_a_is_indian and not _b_is_indian) or
+                    (not _a_is_indian and _b_is_indian)
+                ) and (_a_is_indian or _b_is_indian)
+
                 if period == "1mo":
                     merged_price = pd.concat([price_a, price_b], axis=1, sort=True).dropna()
                     corr = merged_price["A"].corr(merged_price["B"]) if len(merged_price) >= 5 else float("nan")
@@ -2377,14 +2454,38 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
                     if not math.isnan(corr):
                         _render_stats(corr, r2, len(merged_price), period)
                 else:
-                    # Daily returns — statistically honest, not fooled by shared trends
+                    # Daily returns — not fooled by shared long-term trends
                     ret_a = price_a.pct_change().dropna()
                     ret_b = price_b.pct_change().dropna()
                     merged_ret = pd.concat([ret_a, ret_b], axis=1, sort=True).dropna()
                     corr = merged_ret["A"].corr(merged_ret["B"]) if len(merged_ret) >= 10 else float("nan")
                     r2   = corr ** 2 if not math.isnan(corr) else 0.0
+
+                    # Cross-timezone index pair: also compute 1-day lagged correlation
+                    # S&P 500/US/EU/Asia closes AFTER Indian market — Nifty reacts next morning
+                    # Lag: if A is non-Indian (e.g. S&P), shift A back by 1 day to align with Nifty
+                    lagged_corr = lagged_r2 = None
+                    if _is_cross_tz_index and len(merged_ret) >= 10:
+                        if _b_is_indian:
+                            # A is non-Indian (S&P, Dow etc.) — shift A back 1 day
+                            lagged_merged = pd.concat(
+                                [ret_a.shift(1).rename("A_lag"), ret_b], axis=1, sort=True
+                            ).dropna()
+                        else:
+                            # B is non-Indian — shift B back 1 day
+                            lagged_merged = pd.concat(
+                                [ret_a, ret_b.shift(1).rename("B_lag")], axis=1, sort=True
+                            ).dropna()
+                            lagged_merged.columns = ["A_lag", "B"]
+                            lagged_merged = lagged_merged.rename(columns={"A_lag":"A","B":"B"})
+                        if len(lagged_merged) >= 10:
+                            lagged_corr = lagged_merged.iloc[:,0].corr(lagged_merged.iloc[:,1])
+                            lagged_r2   = lagged_corr ** 2
+
                     if not math.isnan(corr):
-                        _render_stats(corr, r2, len(merged_ret), period)
+                        _render_stats(corr, r2, len(merged_ret), period,
+                                      lagged_corr=lagged_corr, lagged_r2=lagged_r2,
+                                      is_cross_tz=_is_cross_tz_index)
 
         except Exception as _corr_err:
             st.markdown(
