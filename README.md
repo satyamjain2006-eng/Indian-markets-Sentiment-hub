@@ -1,6 +1,6 @@
-🏦 Indian Market Sentiment Hub
+# 🏦 Indian Market Sentiment Hub
 
-A professional Streamlit dashboard for **NSE/BSE stocks, MCX Commodities, Crypto, and Forex** with multi-model AI sentiment analysis, smart news filtering, live auto-refresh, and cross-asset comparison.
+A professional Streamlit dashboard for **NSE/BSE stocks, MCX Commodities, Crypto, and Forex** with AI-powered sentiment analysis, smart news filtering, live auto-refresh, and cross-asset comparison.
 
 🔗 **Live App:** [indianmarketsentimentanalysis.streamlit.app](https://indianmarketsentimentanalysis.streamlit.app)
 
@@ -10,13 +10,13 @@ A professional Streamlit dashboard for **NSE/BSE stocks, MCX Commodities, Crypto
 
 | Feature | Detail |
 |---|---|
-| **Stock Search** | Search any of 2,000+ NSE/BSE listed companies by name or symbol |
+| **Stock Search** | Search any of 2,268+ NSE/BSE listed companies by name or symbol |
 | **Asset Classes** | NSE/BSE Stocks · MCX Commodities · Top 10 Crypto · 60+ Forex pairs |
 | **Exchange Toggle** | Switch any stock between NSE (.NS) and BSE (.BO) with one click |
-| **Price Charts** | Candlestick + MA20 + MA50 + Bollinger Bands + MACD |
-| **Sentiment Engine** | DistilRoBERTa (finance-specific) + VADER + TextBlob — averaged for accuracy |
-| **Keyword Boosting** | Finance-specific words like "crash", "rally", "circuit breaker" adjust scores |
-| **Recency Weighting** | Recent articles carry more weight — today's crash isn't buried by old positives |
+| **Price Charts** | Candlestick + adaptive MA + Bollinger Bands + MACD (windows scale with period) |
+| **Sentiment Engine** | Groq (Llama 3) as primary · VADER + TextBlob as silent fallback |
+| **Keyword Boosting** | Finance-specific vocabulary (150+ positive, 150+ negative, 80 neutral terms) adjusts scores when Groq is unavailable |
+| **Recency Weighting** | Recent articles carry more weight in the KPI average — today's crash isn't buried by old positives |
 | **Momentum Alerts** | Detects sharp sentiment shifts vs yesterday and shows a banner |
 | **News Sources** | Google News · Economic Times · MoneyControl · LiveMint · Reuters |
 | **Daily Sentiment Trend** | Bubble chart grouped by date — bubble size = article volume |
@@ -28,7 +28,7 @@ A professional Streamlit dashboard for **NSE/BSE stocks, MCX Commodities, Crypto
 
 ## 🔍 How Company Search Works
 
-On startup the app fetches the official NSE equity list CSV from GitHub (~2,000+ companies). As you type, it matches against names and symbols using 4-tier priority ranking:
+On startup the app fetches the official NSE equity list CSV from GitHub (2,268+ companies). As you type, it matches against names and symbols using 4-tier priority ranking:
 
 1. Exact symbol match
 2. Name starts with query
@@ -41,28 +41,29 @@ Falls back to a hardcoded list of 250+ companies if GitHub is unreachable.
 
 ## 🧠 How Sentiment Scoring Works
 
-Every headline is scored by **three models** and combined into a single compound score.
+Every headline is scored and combined into a single compound score in `[-1, +1]`.
 
-### Model 1 — DistilRoBERTa (Primary)
-`mrm8488/distilroberta-finetuned-financial-news-sentiment-analysis`
-- Fine-tuned specifically on **financial news headlines**
-- Runs via HuggingFace Inference API (requires `HF_API_KEY` in secrets)
-- Falls back **silently** if unavailable — no error shown to user
+### Model 1 — Groq / Llama 3 (Primary)
+`llama-3.3-70b-versatile` via Groq API
+- Understands full sentence context — not fooled by mixed-signal headlines like *"Sensex tanks 1,097 pts; defence stocks rally"*
+- Scores all articles in a single batched API call (~1–2 seconds for 30 articles)
+- Requires `GROQ_API_KEY` in Streamlit secrets
+- Falls back **silently** to VADER + TextBlob if unavailable — no error shown to user
 
-### Model 2 — VADER
+### Model 2 — VADER (Fallback)
 - Rule-based, dictionary-weighted
 - Always runs locally, no API needed
 
-### Model 3 — TextBlob
+### Model 3 — TextBlob (Fallback)
 - Lexicon-based general sentiment
 - Always runs locally, no API needed
 
 ### Score Pipeline
 ```
-1. Score title + description (first 300 chars) together
-2. Apply finance keyword boost (±0.08 per hit, capped at ±0.40)
-3. Average all available model scores
-4. Apply recency weight (last 2h = 100%, >24h = 40%)
+1. Score title (Groq) or title + description/300 chars (VADER+TextBlob)
+2. VADER fallback only: apply finance keyword boost (±0.10/±0.20 per hit)
+3. Apply recency weight (last 2h = 100%, >1 week = 8%) — KPI average only
+4. Cap individual article scores at ±0.70
 ```
 
 ### Recency Weights
@@ -72,7 +73,9 @@ Every headline is scored by **three models** and combined into a single compound
 | 2 – 6 hours | 85% |
 | 6 – 12 hours | 70% |
 | 12 – 24 hours | 55% |
-| Older | 40% |
+| 1 – 3 days | 30% |
+| 3 – 7 days | 15% |
+| Older | 8% |
 
 ### Score Thresholds
 | Score | Label |
@@ -84,8 +87,8 @@ Every headline is scored by **three models** and combined into a single compound
 ### Scorer Badge
 | Badge | Meaning |
 |---|---|
-| 🟢 `DistilRoBERTa + VADER + TextBlob` | All three models active |
-| 🟣 `VADER + TextBlob` | DistilRoBERTa unavailable, fallback active |
+| 🩵 `Groq (Llama 3)` | Groq API active — full language model scoring |
+| 🟣 `VADER + TextBlob` | Groq unavailable, keyword-boosted fallback active |
 
 ---
 
@@ -93,22 +96,24 @@ Every headline is scored by **three models** and combined into a single compound
 
 Compares today's average sentiment score against yesterday's:
 
-- Drop of **≥ 0.15** → 🔴 Red banner: *"Bearish shift detected in news flow"*
-- Rise of **≥ 0.15** → 🟢 Green banner: *"Bullish shift detected in news flow"*
+- Drop of **≥ 0.10** → 🔴 Red banner: *"Bearish shift detected in news flow"*
+- Rise of **≥ 0.10** → 🟢 Green banner: *"Bullish shift detected in news flow"*
 
-Requires at least 3 articles on both days to trigger.
+Requires at least 2 articles on both days to trigger.
 
 ---
 
 ## 📈 Technical Indicators
 
+Indicator windows adapt automatically based on the selected period to avoid invisible lines from insufficient data.
+
 | Indicator | What it shows |
 |---|---|
-| **MA20** | 20-day moving average — short-term trend |
-| **MA50** | 50-day moving average — medium-term trend |
-| **Bollinger Bands** | 2 std deviations above/below MA20. Width = volatility |
-| **MACD Line** | 12-day EMA minus 26-day EMA — momentum direction |
-| **Signal Line** | 9-day EMA of MACD. Crossover = buy/sell signal |
+| **MA (short)** | Short-term moving average — adapts to MA10 / MA20 based on candle count |
+| **MA (medium)** | Medium-term moving average — adapts to MA20 / MA50 based on candle count |
+| **Bollinger Bands** | 2 std deviations above/below the short MA. Width = volatility |
+| **MACD Line** | Fast EMA minus slow EMA — momentum direction |
+| **Signal Line** | EMA of MACD. Crossover = buy/sell signal |
 | **MACD Histogram** | MACD minus Signal. Growing green = bullish momentum |
 
 ---
@@ -132,5 +137,8 @@ Requires at least 3 articles on both days to trigger.
 
 Compare any two assets side by side:
 - Normalised to 100 so different price scales are directly comparable
-- Pearson correlation score with label (strong / moderate / weak · positive / negative)
+- Pearson correlation computed on normalised price levels across all periods
+- Correlation label: Strong / Moderate / Weak · Positive / Negative
 - Supports: Indices · Commodities · Crypto · Forex · Individual Stocks
+
+---
