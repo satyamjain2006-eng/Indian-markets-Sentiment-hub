@@ -1885,6 +1885,16 @@ with st.sidebar:
                 if st.button("✕", key="primary_clear", help="Search again",
                              use_container_width=True):
                     st.session_state.primary_selected = False
+                    # Reset to default based on exchange
+                    _exch = st.session_state.get("_exchange_radio", "NSE (.NS)")
+                    if _exch == "BSE (.BO)":
+                        st.session_state.primary_name   = "Sensex"
+                        st.session_state.primary_ticker = "^BSESN"
+                        st.session_state.primary_symbol = "SENSEX"
+                    else:
+                        st.session_state.primary_name   = "Nifty 50"
+                        st.session_state.primary_ticker = "^NSEI"
+                        st.session_state.primary_symbol = "NIFTY50"
                     st.rerun()
         else:
             st.markdown("**🔍 Search Company**")
@@ -1907,7 +1917,8 @@ with st.sidebar:
                             st.session_state.primary_selected = True
                             st.rerun()
 
-        exchange = st.radio("Exchange", ["NSE (.NS)", "BSE (.BO)"], horizontal=True)
+        exchange = st.radio("Exchange", ["NSE (.NS)", "BSE (.BO)"], horizontal=True,
+                           key="_exchange_radio")
         sym = st.session_state.primary_symbol
         if sym in INDEX_TICKERS:
             st.session_state.primary_ticker = INDEX_TICKERS[sym][exchange]
