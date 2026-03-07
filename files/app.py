@@ -1497,25 +1497,43 @@ def _yf_download_safe(ticker: str, **kwargs) -> pd.DataFrame:
 @st.cache_data(ttl=60, max_entries=20, show_spinner=False)
 def fetch_price(ticker: str, period: str) -> tuple:
     def _clean(df: pd.DataFrame, is_intraday: bool) -> pd.DataFrame:
+        # Step 1: flatten MultiIndex columns BEFORE reset_index
+        # yfinance MultiIndex: index=Date, columns=MultiIndex([Close,High,...],[ticker,...])
+        # get_level_values(0) gives ["Close","High",...] — no "Date" yet
+        # reset_index() then moves Date from index → first column safely
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
-        df = df.reset_index()
+
+        # Step 2: reset_index — but if "Date" already in columns, avoid duplicate
+        if df.index.name in ("Date", "Datetime") and df.index.name not in df.columns:
+            df = df.reset_index()
+        elif df.index.name in ("Date", "Datetime"):
+            # Date already a column — just drop the index
+            df = df.reset_index(drop=True)
+        else:
+            df = df.reset_index()
+
+        # Step 3: rename Datetime → Date
         if "Datetime" in df.columns:
             df = df.rename(columns={"Datetime": "Date"})
+
+        # Step 4: dedupe columns (safety net for any remaining duplicates)
+        df = df.loc[:, ~df.columns.duplicated()]
+
+        # Step 5: strip tz from Date
         if "Date" in df.columns and not df.empty:
             if is_intraday:
-                if hasattr(df["Date"].dtype, "tz") and df["Date"].dt.tz is not None:
-                    df["Date"] = df["Date"].dt.tz_convert("Asia/Kolkata").dt.tz_localize(None)
-                else:
-                    df["Date"] = pd.to_datetime(df["Date"]) + pd.Timedelta(hours=5, minutes=30)
-            else:
-                # Strip tz for daily data — Dow Jones etc. come tz-aware (America/New_York)
-                # Keep the calendar date as-is (tz_convert not utc — avoids date shifting)
                 dates = pd.to_datetime(df["Date"])
-                if dates.dt.tz is not None:
-                    df["Date"] = dates.dt.tz_convert(None)
+                if hasattr(dates.dt, "tz") and dates.dt.tz is not None:
+                    df["Date"] = dates.dt.tz_convert("Asia/Kolkata").dt.tz_localize(None)
                 else:
-                    df["Date"] = dates
+                    df["Date"] = dates + pd.Timedelta(hours=5, minutes=30)
+            else:
+                # Keep calendar date as recorded by each exchange — no UTC conversion
+                df["Date"] = df["Date"].astype(str).str[:10]
+                df["Date"] = pd.to_datetime(df["Date"], format="%Y-%m-%d", errors="coerce")
+
+        df = df.dropna(subset=["Date"])
         df = df.drop_duplicates(subset=["Date"]).sort_values("Date").reset_index(drop=True)
         return df
 
