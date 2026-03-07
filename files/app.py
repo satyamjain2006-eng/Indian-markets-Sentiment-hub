@@ -1140,12 +1140,14 @@ def badge_class(label):
 def fetch_news(company_name: str, symbol: str = "", asset_type: str = "") -> pd.DataFrame:
     keyword  = get_news_keyword(company_name)
 
+    # ── Always derive boolean flags — used throughout the function ────────────
+    is_commodity = company_name in _COMMODITY_ASSETS
+    is_crypto    = company_name in _CRYPTO_ASSETS
+    is_forex     = "/" in company_name and len(company_name) <= 8
+    is_index     = company_name in {"Nifty 50","Sensex","Nifty Bank","Nifty Midcap 50"}
+
     # ── Determine asset type if not passed explicitly ─────────────────────────
     if not asset_type:
-        is_commodity = company_name in _COMMODITY_ASSETS
-        is_crypto    = company_name in _CRYPTO_ASSETS
-        is_forex     = "/" in company_name and len(company_name) <= 8
-        is_index     = company_name in {"Nifty 50","Sensex","Nifty Bank","Nifty Midcap 50"}
         if is_commodity:   asset_type = "commodity"
         elif is_crypto:    asset_type = "crypto"
         elif is_forex:     asset_type = "forex"
