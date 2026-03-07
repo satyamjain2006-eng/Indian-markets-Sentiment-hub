@@ -2148,12 +2148,12 @@ else:
     asset_type = "stock"
 
 with st.spinner(f"Loading {primary_name}…"):
-    with ThreadPoolExecutor(max_workers=2) as executor:
+    with ThreadPoolExecutor(max_workers=1) as executor:
         fut_price = executor.submit(fetch_price, primary_ticker, period)
+        # fetch_news runs in main thread — background threads lack Streamlit context
         _symbol = st.session_state.get("primary_symbol", "")
-        fut_news  = executor.submit(fetch_news, primary_name, _symbol)
+        news_df = fetch_news(primary_name, _symbol)
         price_df, market_closed = fut_price.result()
-        news_df   = fut_news.result()
 
 # ── KPI Row ───────────────────────────────────────────────────────────────────
 c1, c2, c3, c4, c5 = st.columns(5)
