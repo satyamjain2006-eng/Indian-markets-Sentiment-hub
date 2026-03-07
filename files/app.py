@@ -621,10 +621,10 @@ label must be exactly one of: "Positive", "Negative", "Neutral"
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}",
                      "Content-Type": "application/json"},
-            json={"model": "llama-3.1-8b-instant",
+            json={"model": "llama-3.3-70b-versatile",
                   "messages": [{"role": "user", "content": prompt}],
                   "temperature": 0.0,
-                  "max_tokens": 800},
+                  "max_tokens": 1500},
             timeout=15
         )
         if resp.status_code != 200:
@@ -633,12 +633,20 @@ label must be exactly one of: "Positive", "Negative", "Neutral"
         raw = resp.json()["choices"][0]["message"]["content"].strip()
         # Strip markdown code fences if present
         raw = raw.replace("```json", "").replace("```", "").strip()
+        # Extract JSON array if there's surrounding text
+        import re as _re
+        arr_match = _re.search(r"\[.*\]", raw, _re.DOTALL)
+        if arr_match:
+            raw = arr_match.group(0)
         results = json.loads(raw)
-        if isinstance(results, list) and len(results) == len(titles):
-            return [{"score": float(r.get("score", 0.0)),
-                     "label": r.get("label", "Neutral")} for r in results]
-        return None
-    except Exception:
+        if not isinstance(results, list):
+            return None
+        # Pad with neutral if fewer results than titles (truncated response)
+        while len(results) < len(titles):
+            results.append({"score": 0.0, "label": "Neutral"})
+        return [{"score": float(r.get("score", 0.0)),
+                 "label": r.get("label", "Neutral")} for r in results[:len(titles)]]
+    except Exception as _e:
         return None
 
 # ── Method A: Finance-specific keyword booster ────────────────────────────────
@@ -1124,7 +1132,7 @@ def badge_class(label):
     return {"Positive":"b-pos","Negative":"b-neg","Neutral":"b-neu"}.get(label,"")
 
 
-@st.cache_data(ttl=301, max_entries=10, show_spinner=False)
+@st.cache_data(ttl=302, max_entries=10, show_spinner=False)
 def fetch_news(company_name: str) -> pd.DataFrame:
     keyword  = get_news_keyword(company_name)
     symbol   = st.session_state.get("primary_symbol", "")
