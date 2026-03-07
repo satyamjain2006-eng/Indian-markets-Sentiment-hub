@@ -1870,31 +1870,57 @@ with st.sidebar:
     st.markdown("---")
 
     if asset_class == "🇮🇳 NSE / BSE Stocks":
-        st.markdown("**🔍 Search Company**")
-        query = st.text_input(
-            "Type company name or NSE symbol",
-            placeholder="e.g. Reliance, HDFC, Adani…",
-            label_visibility="collapsed"
-        )
         if "primary_name" not in st.session_state:
-            st.session_state.primary_name   = "Nifty 50"
-            st.session_state.primary_ticker = "^NSEI"
-            st.session_state.primary_symbol = "NIFTY50"
-        if query:
-            results = search_companies(query, all_companies)
-            if results.empty:
-                st.caption("No companies found.")
-            else:
-                for _, row in results.iterrows():
-                    if st.button(f"{row['name']}  [{row['symbol']}]",
-                                 key=f"btn_{row['symbol']}", use_container_width=True):
-                        st.session_state.primary_name   = row["name"]
-                        st.session_state.primary_ticker = row["yf_ns"]
-                        st.session_state.primary_symbol = row["symbol"]
+            st.session_state.primary_name    = "Nifty 50"
+            st.session_state.primary_ticker  = "^NSEI"
+            st.session_state.primary_symbol  = "NIFTY50"
+        if "primary_selected" not in st.session_state:
+            st.session_state.primary_selected = False
+
         INDEX_TICKERS = {
             "NIFTY50": {"NSE (.NS)": "^NSEI",  "BSE (.BO)": "^BSESN"},
             "SENSEX":  {"NSE (.NS)": "^BSESN", "BSE (.BO)": "^BSESN"},
         }
+
+        if st.session_state.primary_selected:
+            # Show selected pill with clear button
+            st.markdown("**🔍 Search Company**")
+            col_sel, col_clr = st.columns([5, 1])
+            with col_sel:
+                st.markdown(
+                    f"<div style='background:#0e3a1a;border:1px solid #22c55e;border-radius:8px;"
+                    f"padding:8px 12px;font-size:0.85rem;color:#22c55e;font-weight:600'>"
+                    f"✅ {st.session_state.primary_name}"
+                    f"<br><span style='color:#6b7a99;font-weight:400;font-size:0.75rem'>"
+                    f"{st.session_state.primary_ticker}</span></div>",
+                    unsafe_allow_html=True
+                )
+            with col_clr:
+                if st.button("✕", key="primary_clear", help="Search again",
+                             use_container_width=True):
+                    st.session_state.primary_selected = False
+                    st.rerun()
+        else:
+            st.markdown("**🔍 Search Company**")
+            query = st.text_input(
+                "Type company name or NSE symbol",
+                placeholder="e.g. Reliance, HDFC, Adani…",
+                label_visibility="collapsed"
+            )
+            if query:
+                results = search_companies(query, all_companies)
+                if results.empty:
+                    st.caption("No companies found.")
+                else:
+                    for _, row in results.iterrows():
+                        if st.button(f"{row['name']}  [{row['symbol']}]",
+                                     key=f"btn_{row['symbol']}", use_container_width=True):
+                            st.session_state.primary_name     = row["name"]
+                            st.session_state.primary_ticker   = row["yf_ns"]
+                            st.session_state.primary_symbol   = row["symbol"]
+                            st.session_state.primary_selected = True
+                            st.rerun()
+
         exchange = st.radio("Exchange", ["NSE (.NS)", "BSE (.BO)"], horizontal=True)
         sym = st.session_state.primary_symbol
         if sym in INDEX_TICKERS:
@@ -1903,8 +1929,6 @@ with st.sidebar:
             st.session_state.primary_ticker = sym + ".BO"
         else:
             st.session_state.primary_ticker = sym + ".NS"
-        st.markdown(f"**Selected:** `{st.session_state.primary_name}`")
-        st.markdown(f"**Ticker:** `{st.session_state.primary_ticker}`")
         primary_name   = st.session_state.primary_name
         primary_ticker = st.session_state.primary_ticker
 
