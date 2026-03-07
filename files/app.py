@@ -1171,7 +1171,6 @@ def badge_class(label):
     return {"Positive":"b-pos","Negative":"b-neg","Neutral":"b-neu"}.get(label,"")
 
 
-@st.cache_data(ttl=313, max_entries=10, show_spinner=False)
 def fetch_news(company_name: str, symbol: str = "") -> pd.DataFrame:
     keyword  = get_news_keyword(company_name)
     # symbol passed explicitly — never read st.session_state inside cached/threaded fn
@@ -1504,6 +1503,36 @@ def fetch_news(company_name: str, symbol: str = "") -> pd.DataFrame:
             "recency_weight","momentum_signal","keyword","scorer"]
     df = df[[c for c in keep if c in df.columns]]
     return df
+
+
+_NEWS_TTL = 300  # seconds — how long to keep cached news before re-fetching
+
+def get_news(company_name: str, symbol: str = "") -> pd.DataFrame:
+    """Manual session_state TTL cache for fetch_news.
+    
+    WHY: fetch_news cannot use @st.cache_data because Groq must run in the
+    main thread with access to _GROQ_API_KEY (read from st.secrets at startup).
+    @st.cache_data runs in a special context where st.secrets is unreliable,
+    which caused Groq to always fall back to VADER on Streamlit Cloud.
+    
+    This wrapper gives us the same TTL caching behaviour without the cache layer.
+    """
+    import time as _time
+    cache_key = f"_news_cache_{company_name}_{symbol}"
+    ts_key    = f"_news_ts_{company_name}_{symbol}"
+    now       = _time.time()
+
+    # Return cached result if still fresh
+    if (cache_key in st.session_state
+            and ts_key in st.session_state
+            and now - st.session_state[ts_key] < _NEWS_TTL):
+        return st.session_state[cache_key]
+
+    # Cache miss or expired — fetch fresh
+    result = fetch_news(company_name, symbol)
+    st.session_state[cache_key] = result
+    st.session_state[ts_key]    = now
+    return result
 
 
 # ── yfinance safety buffer ────────────────────────────────────────────────────
@@ -2187,9 +2216,9 @@ else:
 with st.spinner(f"Loading {primary_name}…"):
     with ThreadPoolExecutor(max_workers=1) as executor:
         fut_price = executor.submit(fetch_price, primary_ticker, period)
-        # fetch_news runs in main thread — background threads lack Streamlit context
+        # get_news runs in main thread — has full access to _GROQ_API_KEY and session_state
         _symbol = st.session_state.get("primary_symbol", "")
-        news_df = fetch_news(primary_name, _symbol)
+        news_df = get_news(primary_name, _symbol)
         price_df, market_closed = fut_price.result()
 
 # ── KPI Row ───────────────────────────────────────────────────────────────────
@@ -2795,7 +2824,7 @@ else:
         )
         # Fetch general market news as fallback
         with st.spinner("Loading general market news…"):
-            general_df = fetch_news("Nifty 50", "^NSEI")
+            general_df = get_news("Nifty 50", "^NSEI")
         if not general_df.empty:
             st.markdown(
                 "<div style='color:#8892a4;font-size:0.82rem;margin-bottom:10px;"
