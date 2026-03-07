@@ -1498,7 +1498,7 @@ def _yf_download_safe(ticker: str, **kwargs) -> pd.DataFrame:
         except Exception:
             return pd.DataFrame()
 
-@st.cache_data(ttl=60, max_entries=20, show_spinner=False)
+@st.cache_data(ttl=61, max_entries=20, show_spinner=False)
 def fetch_price(ticker: str, period: str) -> tuple:
     def _clean(df: pd.DataFrame, is_intraday: bool) -> pd.DataFrame:
         if df.empty:
@@ -1506,9 +1506,12 @@ def fetch_price(ticker: str, period: str) -> tuple:
 
         # Flatten MultiIndex columns — yfinance returns MultiIndex for single ticker too
         # e.g. MultiIndex([("Close","^NSEI"),("High","^NSEI")...])
-        # After get_level_values(0): ["Close","High",...] — Date is still in the index
+        # After get_level_values(0): ["Close","High","Close",...] — duplicates possible
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
+        # Dedupe columns immediately after flatten — keep first occurrence
+        # This is what causes narwhals DuplicateError: 'Close' 2 times
+        df = df.loc[:, ~df.columns.duplicated(keep="first")]
 
         # Move Date/Datetime from index into columns
         # Guard: only reset_index if index name is Date/Datetime to avoid adding extra col
