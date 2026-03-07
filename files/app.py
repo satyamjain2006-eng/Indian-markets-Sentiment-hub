@@ -1527,7 +1527,9 @@ def fetch_price(ticker: str, period: str) -> tuple:
                 data = _clean(data, is_intraday=False)
             return data, False
         else:
-            data = _yf_download_safe(ticker, period=period)
+            # Force daily interval for all periods — yfinance defaults to
+            # weekly for 1y/2y which produces spurious correlations
+            data = _yf_download_safe(ticker, period=period, interval="1d")
             return _clean(data, is_intraday=False), False
     except Exception:
         return pd.DataFrame(), False
@@ -2433,19 +2435,27 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
                 _INDIAN_INDICES = {
                     "Nifty 50", "Sensex", "Nifty Bank", "Nifty Midcap 50"
                 }
-                _type_a = type_a if "type_a" in dir() else ""
-                _type_b = type_b if "type_b" in dir() else ""
-                _is_index_pair = (
-                    "Index" in str(st.session_state.get("ca_type_a","")) or
-                    ca_name_a in _INDIAN_INDICES or
-                    ca_name_b in _INDIAN_INDICES
-                )
-                _a_is_indian = ca_name_a in _INDIAN_INDICES
-                _b_is_indian = ca_name_b in _INDIAN_INDICES
+                # All non-Indian indices available in the comparison tool
+                _GLOBAL_INDICES = {
+                    "S&P 500", "Nasdaq 100", "Dow Jones", "Russell 2000",
+                    "VIX (Fear Index)", "Nikkei 225", "Hang Seng",
+                    "Shanghai Comp.", "KOSPI (Korea)", "ASX 200",
+                    "Straits Times", "FTSE 100", "DAX (Germany)",
+                    "CAC 40 (France)", "Euro Stoxx 50", "Tadawul (Saudi)",
+                    "MSCI World", "MSCI EM"
+                }
+                _ALL_INDICES = _INDIAN_INDICES | _GLOBAL_INDICES
+                _a_is_indian  = ca_name_a in _INDIAN_INDICES
+                _b_is_indian  = ca_name_b in _INDIAN_INDICES
+                _a_is_index   = ca_name_a in _ALL_INDICES
+                _b_is_index   = ca_name_b in _ALL_INDICES
+                # Cross-tz only applies when BOTH assets are indices AND
+                # one is Indian (IST) and the other is non-Indian
                 _is_cross_tz_index = (
-                    (_a_is_indian and not _b_is_indian) or
-                    (not _a_is_indian and _b_is_indian)
-                ) and (_a_is_indian or _b_is_indian)
+                    _a_is_index and _b_is_index and
+                    ((_a_is_indian and not _b_is_indian) or
+                     (not _a_is_indian and _b_is_indian))
+                )
 
                 if period == "1mo":
                     merged_price = pd.concat([price_a, price_b], axis=1, sort=True).dropna()
