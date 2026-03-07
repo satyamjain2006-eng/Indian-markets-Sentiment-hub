@@ -2426,6 +2426,14 @@ _scorer_used  = news_df["scorer"].iloc[0] if not news_df.empty and "scorer" in n
 scorer_label  = _scorer_used
 scorer_color  = "#22d3ee" if "Groq" in _scorer_used else "#a78bfa"
 scorer_badge  = f"<span style='font-size:0.72rem;background:#1a2035;border:1px solid {scorer_color};color:{scorer_color};padding:2px 8px;border-radius:20px;margin-left:8px'>{scorer_label}</span>"
+
+# ── Groq diagnostics (always visible so you can debug key issues) ─────────────
+_groq_key = st.secrets.get("GROQ_API_KEY", "")
+if _groq_key:
+    st.caption(f"🔑 GROQ_API_KEY found — length {len(_groq_key)}, starts with: {_groq_key[:8]}...")
+else:
+    st.warning("⚠️ GROQ_API_KEY not found in st.secrets — using VADER fallback. "
+               "Add it in Streamlit Cloud → App Settings → Secrets.")
 st.markdown(f"### 🗞️ Latest News &nbsp;<span style='font-size:0.8rem;color:#5c7cfa'>searching: '{news_keyword}'</span>{scorer_badge}",
             unsafe_allow_html=True)
 
