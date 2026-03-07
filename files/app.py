@@ -45,6 +45,7 @@ st_autorefresh(interval=300_000, limit=None, key="autorefresh")
 
 # Read secrets once at module level — available everywhere including cached fns
 _GROQ_API_KEY: str = st.secrets.get("GROQ_API_KEY", "")
+_GROQ_LAST_ERROR: str = ""  # captures last Groq exception for display
 
 st.markdown("""
 <style>
@@ -654,6 +655,8 @@ label must be exactly one of: "Positive", "Negative", "Neutral"
         import traceback
         print(f"[Groq] Error for asset_type={asset_type}, n_titles={len(titles)}: {_e}")
         print(traceback.format_exc())
+        global _GROQ_LAST_ERROR
+        _GROQ_LAST_ERROR = f"{type(_e).__name__}: {_e}"
         return None
 
 # ── Method A: Finance-specific keyword booster ────────────────────────────────
@@ -1139,7 +1142,7 @@ def badge_class(label):
     return {"Positive":"b-pos","Negative":"b-neg","Neutral":"b-neu"}.get(label,"")
 
 
-@st.cache_data(ttl=311, max_entries=10, show_spinner=False)
+@st.cache_data(ttl=313, max_entries=10, show_spinner=False)
 def fetch_news(company_name: str, symbol: str = "") -> pd.DataFrame:
     keyword  = get_news_keyword(company_name)
     # symbol passed explicitly — never read st.session_state inside cached/threaded fn
@@ -2682,6 +2685,8 @@ _groq_key = st.secrets.get("GROQ_API_KEY", "")
 if not _groq_key:
     st.warning("⚠️ GROQ_API_KEY not found in st.secrets — using VADER fallback. "
                "Add it in Streamlit Cloud → App Settings → Secrets.")
+elif _GROQ_LAST_ERROR:
+    st.warning(f"⚠️ Groq failed (using VADER fallback): `{_GROQ_LAST_ERROR}`")
 st.markdown(f"### 🗞️ Latest News &nbsp;<span style='font-size:0.8rem;color:#5c7cfa'>searching: '{news_keyword}'</span>{scorer_badge}",
             unsafe_allow_html=True)
 
