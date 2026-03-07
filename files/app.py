@@ -1370,7 +1370,10 @@ def fetch_news(company_name: str, symbol: str = "", asset_type: str = "") -> pd.
     # ── Scoring pipeline ──────────────────────────────────────────────────────
     # Primary: Groq (Llama 3) — understands sentence context
     # Fallback: VADER + TextBlob + keyword boost — if Groq unavailable
+    _groq_debug_key = st.secrets.get("GROQ_API_KEY", "")
+    print(f"[Groq-fetch_news] key={'SET' if _groq_debug_key else 'EMPTY'}, titles={len(df)}, asset={asset_type}")
     groq_results = _groq_score_batch(df["title"].tolist(), asset_type=asset_type) if not df.empty else None
+    print(f"[Groq-fetch_news] result={'OK len='+str(len(groq_results)) if groq_results else 'NONE/FAILED'}")
 
     if groq_results is not None:
         # ── Groq path ────────────────────────────────────────────────────────
