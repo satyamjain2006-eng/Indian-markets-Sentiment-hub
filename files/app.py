@@ -43,6 +43,9 @@ st.set_page_config(
 from streamlit_autorefresh import st_autorefresh
 st_autorefresh(interval=300_000, limit=None, key="autorefresh")
 
+# Read secrets once at module level — available everywhere including cached fns
+_GROQ_API_KEY: str = st.secrets.get("GROQ_API_KEY", "")
+
 st.markdown("""
 <style>
     body, .main { background-color: #0a0e1a; color: #e0e6f0; }
@@ -581,7 +584,7 @@ def _groq_score_batch(titles: list[str], asset_type: str = "stock") -> list[dict
     Score is in [-1, +1]. Falls back to None so caller can use VADER."""
     try:
         import requests, json
-        api_key = st.secrets.get("GROQ_API_KEY", "")
+        api_key = _GROQ_API_KEY
         if not api_key:
             return None
 
