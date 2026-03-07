@@ -2180,8 +2180,14 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
         fig_ca = go.Figure()
         for df, label, color in [(ca_df_a, ca_name_a, "#5c7cfa"), (ca_df_b, ca_name_b, "#00d4aa")]:
             d = df[["Date","Close"]].copy()
-            # Robustly strip tz — handles tz-aware, tz-naive, and mixed
-            _dates = pd.to_datetime(d["Date"], utc=True).dt.tz_localize(None)
+            # Strip tz label without converting — utc=True shifts IST by -5:30
+            # causing date mismatches. tz_convert(None) removes label in-place.
+            _dates = pd.to_datetime(d["Date"])
+            try:
+                if _dates.dt.tz is not None:
+                    _dates = _dates.dt.tz_convert(None)
+            except Exception:
+                _dates = pd.to_datetime(d["Date"].astype(str).str[:10])
             d["Date"] = _dates
             # Normalize to date only (removes time component, handles weekly candles)
             d["Date"] = d["Date"].dt.normalize()
@@ -2452,12 +2458,20 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
             else:
                 def _to_clean_daily(df, col):
                     """Returns a clean daily price series indexed by tz-naive date.
-                    Uses utc=True to normalise all tz-aware/naive dates to UTC first,
-                    then strips tz so Gold (America/New_York) and Nifty (tz-naive)
-                    can be concat'd without TypeError or DuplicateError."""
+                    Strips tz label WITHOUT converting (utc=True shifts IST dates back
+                    by 5:30h causing date mismatches). We just want the calendar date
+                    each exchange recorded — not a common UTC timestamp."""
                     d = df[["Date","Close"]].copy()
-                    # utc=True converts everything (tz-aware or naive) to UTC uniformly
-                    dates = pd.to_datetime(d["Date"], utc=True).dt.tz_localize(None)
+                    dates = pd.to_datetime(d["Date"])
+                    # Strip tz label without converting timezone
+                    try:
+                        if dates.dt.tz is not None:
+                            dates = dates.dt.tz_convert(None)
+                    except Exception:
+                        try:
+                            dates = dates.dt.tz_localize(None)
+                        except Exception:
+                            dates = pd.to_datetime(d["Date"].astype(str).str[:10])
                     dates = dates.dt.normalize()
                     d["Date"] = dates
                     d = d.sort_values("Date").drop_duplicates(subset=["Date"])
