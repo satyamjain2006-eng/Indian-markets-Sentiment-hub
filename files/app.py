@@ -1137,22 +1137,21 @@ def badge_class(label):
 
 
 @st.cache_data(ttl=311, max_entries=10, show_spinner=False)
-def fetch_news(company_name: str, symbol: str = "", asset_type: str = "") -> pd.DataFrame:
+def fetch_news(company_name: str) -> pd.DataFrame:
     keyword  = get_news_keyword(company_name)
+    symbol   = st.session_state.get("primary_symbol", "")
 
-    # ── Always derive boolean flags — used throughout the function ────────────
+    # ── Determine asset type ──────────────────────────────────────────────────
     is_commodity = company_name in _COMMODITY_ASSETS
     is_crypto    = company_name in _CRYPTO_ASSETS
     is_forex     = "/" in company_name and len(company_name) <= 8
     is_index     = company_name in {"Nifty 50","Sensex","Nifty Bank","Nifty Midcap 50"}
 
-    # ── Determine asset type if not passed explicitly ─────────────────────────
-    if not asset_type:
-        if is_commodity:   asset_type = "commodity"
-        elif is_crypto:    asset_type = "crypto"
-        elif is_forex:     asset_type = "forex"
-        elif is_index:     asset_type = "index"
-        else:              asset_type = "stock"
+    if is_commodity:   asset_type = "commodity"
+    elif is_crypto:    asset_type = "crypto"
+    elif is_forex:     asset_type = "forex"
+    elif is_index:     asset_type = "index"
+    else:              asset_type = "stock"
 
     rss_urls = get_rss_urls(keyword, symbol, asset_type)
 
@@ -2151,9 +2150,7 @@ else:
 with st.spinner(f"Loading {primary_name}…"):
     with ThreadPoolExecutor(max_workers=2) as executor:
         fut_price = executor.submit(fetch_price, primary_ticker, period)
-        fut_news  = executor.submit(fetch_news, primary_name,
-                                       st.session_state.get("primary_symbol",""),
-                                       asset_type)
+        fut_news  = executor.submit(fetch_news, primary_name)
         price_df, market_closed = fut_price.result()
         news_df   = fut_news.result()
 
@@ -2758,7 +2755,7 @@ else:
         )
         # Fetch general market news as fallback
         with st.spinner("Loading general market news…"):
-            general_df = fetch_news("Nifty 50", symbol="^NSEI", asset_type="index")
+            general_df = fetch_news("Nifty 50")
         if not general_df.empty:
             st.markdown(
                 "<div style='color:#8892a4;font-size:0.82rem;margin-bottom:10px;"
