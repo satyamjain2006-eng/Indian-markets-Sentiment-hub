@@ -575,13 +575,13 @@ def combined_score(text: str) -> float:
     return round((v + t) / 2, 4)
 
 # ── Groq scorer ───────────────────────────────────────────────────────────────
-def _groq_score_batch(titles: list[str], asset_type: str = "stock") -> list[dict] | None:
+def _groq_score_batch(titles: list[str], asset_type: str = "stock", api_key: str = "") -> list[dict] | None:
     """Score a batch of article titles using Groq (Llama 3).
     Returns list of {score: float, label: str} or None if Groq unavailable.
-    Score is in [-1, +1]. Falls back to None so caller can use VADER."""
+    Score is in [-1, +1]. Falls back to None so caller can use VADER.
+    api_key must be passed explicitly — st.secrets not accessible in cached functions."""
     try:
         import requests, json
-        api_key = st.secrets.get("GROQ_API_KEY", "")
         if not api_key:
             return None
 
@@ -1137,7 +1137,7 @@ def badge_class(label):
 
 
 @st.cache_data(ttl=300, max_entries=10, show_spinner=False)
-def fetch_news(company_name: str, symbol: str = "", asset_type: str = "") -> pd.DataFrame:
+def fetch_news(company_name: str, symbol: str = "", asset_type: str = "", groq_api_key: str = "") -> pd.DataFrame:
     keyword  = get_news_keyword(company_name)
 
     # ── Always derive boolean flags — used throughout the function ────────────
@@ -1368,7 +1368,8 @@ def fetch_news(company_name: str, symbol: str = "", asset_type: str = "") -> pd.
     # ── Scoring pipeline ──────────────────────────────────────────────────────
     # Primary: Groq (Llama 3) — understands sentence context
     # Fallback: VADER + TextBlob + keyword boost — if Groq unavailable
-    groq_results = _groq_score_batch(df["title"].tolist(), asset_type=asset_type)                    if not df.empty else None
+    groq_results = _groq_score_batch(df["title"].tolist(), asset_type=asset_type,
+                                      api_key=groq_api_key) if not df.empty else None
 
     if groq_results is not None:
         # ── Groq path ────────────────────────────────────────────────────────
@@ -2151,9 +2152,10 @@ else:
 with st.spinner(f"Loading {primary_name}…"):
     with ThreadPoolExecutor(max_workers=2) as executor:
         fut_price = executor.submit(fetch_price, primary_ticker, period)
+        _groq_key = st.secrets.get("GROQ_API_KEY", "")
         fut_news  = executor.submit(fetch_news, primary_name,
                                        st.session_state.get("primary_symbol",""),
-                                       asset_type)
+                                       asset_type, _groq_key)
         price_df, market_closed = fut_price.result()
         news_df   = fut_news.result()
 
@@ -2758,7 +2760,8 @@ else:
         )
         # Fetch general market news as fallback
         with st.spinner("Loading general market news…"):
-            general_df = fetch_news("Nifty 50", symbol="^NSEI", asset_type="index")
+            _groq_key2 = st.secrets.get("GROQ_API_KEY", "")
+            general_df = fetch_news("Nifty 50", symbol="^NSEI", asset_type="index", groq_api_key=_groq_key2)
         if not general_df.empty:
             st.markdown(
                 "<div style='color:#8892a4;font-size:0.82rem;margin-bottom:10px;"
