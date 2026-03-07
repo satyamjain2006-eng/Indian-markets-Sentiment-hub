@@ -1536,9 +1536,12 @@ def fetch_price(ticker: str, period: str) -> tuple:
                 data = _clean(data, is_intraday=False)
             return data, False
         else:
-            # Force daily interval for all periods — yfinance defaults to
-            # weekly for 1y/2y which produces spurious correlations
+            # Request daily interval explicitly — yfinance defaults to weekly
+            # for 1y/2y which produces spurious price-level correlations.
+            # Fallback to no interval if daily returns empty (some tickers restrict it).
             data = _yf_download_safe(ticker, period=period, interval="1d")
+            if data.empty:
+                data = _yf_download_safe(ticker, period=period)
             return _clean(data, is_intraday=False), False
     except Exception:
         return pd.DataFrame(), False
