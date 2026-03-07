@@ -649,22 +649,32 @@ def _score_via_groq(titles: list[str], asset_type: str) -> list[dict] | None:
         _dbg = "❌ No API key found in module global / env / st.secrets"
         st.session_state["_groq_debug"] = _dbg
         return None
-    # Mask key for display: show first 8 chars only
+    # Mask key for display
     key_preview = api_key[:8] + "…" if len(api_key) > 8 else "too short"
-    try:
+    # Limit to 12 titles max — reduces token count, avoids rate limit
+    titles = titles[:12]
+
+    def _call_groq():
         prompt = _build_llm_prompt(titles, asset_type)
-        resp = _req.post(
+        return _req.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}",
                      "Content-Type": "application/json"},
             json={"model": "llama-3.3-70b-versatile",
                   "messages": [{"role": "user", "content": prompt}],
                   "temperature": 0.0,
-                  "max_tokens": 1500},
-            timeout=15,
+                  "max_tokens": 1200},
+            timeout=20,
         )
+    try:
+        import time as _time
+        resp = _call_groq()
+        # Retry once on 429 after a short wait
         if resp.status_code == 429:
-            _dbg = f"❌ Rate limited (429) — key: {key_preview}"
+            _time.sleep(3)
+            resp = _call_groq()
+        if resp.status_code == 429:
+            _dbg = f"❌ Rate limited (429) after retry — key: {key_preview}"
             st.session_state["_groq_debug"] = _dbg
             return None
         if resp.status_code != 200:
@@ -681,7 +691,6 @@ def _score_via_groq(titles: list[str], asset_type: str) -> list[dict] | None:
             st.session_state["_groq_debug"] = _dbg
         return result
     except Exception as _e:
-        import traceback as _tb
         _dbg = f"❌ Exception: {type(_e).__name__}: {_e} — key: {key_preview}"
         st.session_state["_groq_debug"] = _dbg
         global _GROQ_LAST_ERROR
@@ -692,6 +701,13 @@ def _groq_score_batch(titles: list[str], asset_type: str = "stock") -> list[dict
     """LLM scorer — Groq (Llama 3) primary, None triggers VADER+TextBlob fallback."""
     if not titles:
         return None
+    # Enforce minimum 5s gap between Groq calls to avoid rate limiting
+    import time as _time
+    last_call = st.session_state.get("_groq_last_call_ts", 0)
+    gap = _time.time() - last_call
+    if gap < 5:
+        _time.sleep(5 - gap)
+    st.session_state["_groq_last_call_ts"] = _time.time()
     return _score_via_groq(titles, asset_type)
 
 # ── Method A: Finance-specific keyword booster ────────────────────────────────
