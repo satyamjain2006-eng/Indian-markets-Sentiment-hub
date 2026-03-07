@@ -2452,14 +2452,13 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
             else:
                 def _to_clean_daily(df, col):
                     """Returns a clean daily price series indexed by tz-naive date.
-                    Strips timezone after normalize so Gold (America/New_York) and
-                    Nifty (tz-naive) can be concat'd without TypeError."""
+                    Uses utc=True to normalise all tz-aware/naive dates to UTC first,
+                    then strips tz so Gold (America/New_York) and Nifty (tz-naive)
+                    can be concat'd without TypeError or DuplicateError."""
                     d = df[["Date","Close"]].copy()
-                    dates = pd.to_datetime(d["Date"]).dt.normalize()
-                    # Strip tz — Gold futures come tz-aware, Nifty is tz-naive
-                    # normalize() keeps tz attached, causing concat to fail silently
-                    if dates.dt.tz is not None:
-                        dates = dates.dt.tz_localize(None)
+                    # utc=True converts everything (tz-aware or naive) to UTC uniformly
+                    dates = pd.to_datetime(d["Date"], utc=True).dt.tz_localize(None)
+                    dates = dates.dt.normalize()
                     d["Date"] = dates
                     d = d.sort_values("Date").drop_duplicates(subset=["Date"])
                     d = d.set_index("Date")["Close"].dropna().astype(float)
@@ -2523,20 +2522,24 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
                     # Lag: if A is non-Indian (e.g. S&P), shift A back by 1 day to align with Nifty
                     lagged_corr = lagged_r2 = None
                     if _is_cross_tz_index and len(merged_ret) >= 10:
-                        if _b_is_indian:
-                            # A is non-Indian (S&P, Dow etc.) — shift A back 1 day
+                        # Non-Indian (Dow/S&P etc.) closes AFTER Indian market
+                        # → Non-Indian yesterday predicts Indian today
+                        if _a_is_indian:
+                            # A=Indian (Nifty), B=non-Indian (Dow)
+                            # Dow yesterday (ret_b shifted +1) vs Nifty today (ret_a)
                             lagged_merged = pd.concat(
-                                [ret_a.shift(1).rename("A_lag"), ret_b], axis=1, sort=True
+                                [ret_a.rename("Indian"), ret_b.shift(1).rename("Global")],
+                                axis=1, sort=True
                             ).dropna()
                         else:
-                            # B is non-Indian — shift B back 1 day
+                            # A=non-Indian (Dow), B=Indian (Nifty)
+                            # Dow yesterday (ret_a shifted +1) vs Nifty today (ret_b)
                             lagged_merged = pd.concat(
-                                [ret_a, ret_b.shift(1).rename("B_lag")], axis=1, sort=True
+                                [ret_b.rename("Indian"), ret_a.shift(1).rename("Global")],
+                                axis=1, sort=True
                             ).dropna()
-                            lagged_merged.columns = ["A_lag", "B"]
-                            lagged_merged = lagged_merged.rename(columns={"A_lag":"A","B":"B"})
                         if len(lagged_merged) >= 10:
-                            lagged_corr = lagged_merged.iloc[:,0].corr(lagged_merged.iloc[:,1])
+                            lagged_corr = lagged_merged["Indian"].corr(lagged_merged["Global"])
                             lagged_r2   = lagged_corr ** 2
 
                     if not math.isnan(corr):
