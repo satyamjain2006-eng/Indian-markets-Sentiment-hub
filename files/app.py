@@ -43,9 +43,8 @@ st.set_page_config(
 from streamlit_autorefresh import st_autorefresh
 st_autorefresh(interval=300_000, limit=None, key="autorefresh")
 
-# NOTE: _GROQ_API_KEY is NOT read at module level — st.secrets isn't ready then.
-# It is read fresh inside _score_via_groq on every call instead.
-_GROQ_API_KEY: str = ""   # placeholder — actual value read in _score_via_groq
+# Read secrets once at module level — available everywhere including cached fns
+_GROQ_API_KEY: str = st.secrets.get("GROQ_API_KEY", "")
 _GROQ_LAST_ERROR: str = ""  # captures last Groq exception for display
 
 st.markdown("""
@@ -358,7 +357,7 @@ def get_rss_urls(keyword: str, symbol: str, asset_type: str = "stock") -> dict:
 
 def parse_rss2json(url: str, source_name: str) -> list:
     try:
-        resp = requests.get(url, timeout=6)
+        resp = requests.get(url, timeout=4)
         data = resp.json()
         if data.get("status") != "ok":
             return []
@@ -638,18 +637,17 @@ def _parse_llm_response(raw: str, n: int) -> list[dict] | None:
 def _score_via_groq(titles: list[str], asset_type: str) -> list[dict] | None:
     """Backend 1: Groq cloud API (llama-3.3-70b-versatile). Free, fast."""
     import requests as _req, os as _os
-    # Always read fresh from st.secrets first — module-level read happens too early
-    api_key = ""
-    try:
-        api_key = st.secrets.get("GROQ_API_KEY", "")
-    except Exception:
-        pass
+    # Try every possible source for the key — belt+suspenders approach
+    api_key = _GROQ_API_KEY
     if not api_key:
         api_key = _os.environ.get("GROQ_API_KEY", "")
     if not api_key:
-        api_key = _GROQ_API_KEY  # last resort fallback
+        try:
+            api_key = st.secrets.get("GROQ_API_KEY", "")
+        except Exception:
+            pass
     if not api_key:
-        print("[Groq] No API key found in st.secrets / env / _GROQ_API_KEY")
+        print("[Groq] No API key found in _GROQ_API_KEY / env / st.secrets")
         return None
     try:
         prompt = _build_llm_prompt(titles, asset_type)
@@ -660,7 +658,7 @@ def _score_via_groq(titles: list[str], asset_type: str) -> list[dict] | None:
             json={"model": "llama-3.3-70b-versatile",
                   "messages": [{"role": "user", "content": prompt}],
                   "temperature": 0.0,
-                  "max_tokens": 2000},
+                  "max_tokens": 1500},
             timeout=15,
         )
         if resp.status_code == 429:
@@ -685,12 +683,10 @@ def _score_via_groq(titles: list[str], asset_type: str) -> list[dict] | None:
         return None
 
 def _groq_score_batch(titles: list[str], asset_type: str = "stock") -> list[dict] | None:
-    """LLM scorer — Groq (Llama 3) primary, None triggers VADER+TextBlob fallback.
-    Caps at 20 titles to stay well within Groq free tier rate limits."""
+    """LLM scorer — Groq (Llama 3) primary, None triggers VADER+TextBlob fallback."""
     if not titles:
         return None
-    # Cap at 20 — enough for accurate sentiment, avoids rate limit for all asset types
-    return _score_via_groq(titles[:20], asset_type)
+    return _score_via_groq(titles, asset_type)
 
 # ── Method A: Finance-specific keyword booster ────────────────────────────────
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1335,7 +1331,7 @@ def fetch_news(company_name: str, symbol: str = "") -> pd.DataFrame:
         futures = {executor.submit(fetch_source, src, url): src
                    for src, url in rss_urls.items()}
         # Hard 6s wall-clock deadline — don't wait for stragglers
-        for future in as_completed(futures, timeout=10):
+        for future in as_completed(futures, timeout=6):
             try:
                 all_articles.extend(future.result())
             except Exception:
