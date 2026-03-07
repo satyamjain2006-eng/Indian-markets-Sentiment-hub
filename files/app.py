@@ -2480,9 +2480,13 @@ if not news_df.empty:
 
     for _, row in filtered.iterrows():
         bc = badge_class(row["label"])
-        v_score = row.get("vader_score", row["compound"])
-        t_score = row.get("textblob_score", 0.0)
-        score_detail = f"V:{v_score:+.2f} T:{t_score:+.2f}"
+        _is_groq = "Groq" in str(row.get("scorer", ""))
+        if _is_groq:
+            score_detail = f"Groq:{row['compound']:+.2f}"
+        else:
+            v_score = row.get("vader_score", row["compound"])
+            t_score = row.get("textblob_score", 0.0)
+            score_detail = f"V:{v_score:+.2f} T:{t_score:+.2f}"
         st.markdown(f"""
         <div class='news-item'>
             <div class='news-title'>
@@ -2524,9 +2528,13 @@ else:
             )
             for _, row in general_df.head(10).iterrows():
                 bc = badge_class(row["label"])
-                v_score = row.get("vader_score", row["compound"])
-                t_score = row.get("textblob_score", 0.0)
-                score_detail = f"V:{v_score:+.2f} T:{t_score:+.2f}"
+                _is_groq = "Groq" in str(row.get("scorer", ""))
+                if _is_groq:
+                    score_detail = f"Groq:{row['compound']:+.2f}"
+                else:
+                    v_score = row.get("vader_score", row["compound"])
+                    t_score = row.get("textblob_score", 0.0)
+                    score_detail = f"V:{v_score:+.2f} T:{t_score:+.2f}"
                 st.markdown(f"""
                 <div class='news-item'>
                     <div class='news-title'>
