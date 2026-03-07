@@ -973,6 +973,35 @@ def finance_boost_series(texts: pd.Series, asset_type: str = "stock") -> pd.Seri
     boost = boost.where(boost >= 0, boost + dampen).where(boost <= 0, boost - dampen)
     boost = boost.clip(-0.80, 0.80)
 
+    # ── Mixed-signal dampening ────────────────────────────────────────────────
+    # When a title contains a strong market crash signal (tanks/crashes/plunges
+    # + pts/points magnitude indicator), positive keyword boosts are halved.
+    # Handles: "Sensex tanks 1,097 pts; defence stocks rally" — the rally is a
+    # minor subplot of a crash headline. Without dampening, "rally" (+0.20)
+    # overwhelms "tanks" (−0.20) and the article scores falsely positive.
+    _CRASH_VERBS = {"tanks","tanked","crashes","crashed","plunges","plunged",
+                    "plummets","plummeted","sinks","sank","slumps","slumped",
+                    "tumbles","tumbled","falls","fell","drops","dropped",
+                    "bleeds","bled","nosedives","nosedived","collapses","collapsed",
+                    "settles lower","closes lower","ends lower","sheds","skids",
+                    "loses","lost","down","lower","decline","declines","declined"}
+    _MAGNITUDE   = {"pts","points","percent","%"}
+
+    has_crash_verb = pd.Series(False, index=texts.index)
+    for v in _CRASH_VERBS:
+        has_crash_verb |= lower.str.contains(r'' + v + r'', regex=True, na=False)
+
+    has_magnitude = pd.Series(False, index=texts.index)
+    for m in _MAGNITUDE:
+        has_magnitude |= lower.str.contains(m, regex=False, na=False)
+
+    # Mixed-signal article = crash verb + magnitude indicator present together
+    is_mixed_crash = has_crash_verb & has_magnitude
+
+    # For mixed-crash articles: if boost is still positive, halve it
+    # (the positive keywords are minor subplots, not the main story)
+    boost = boost.where(~is_mixed_crash | (boost <= 0), boost * 0.5)
+
     if asset_type == "commodity":
         # Short-term supply shock → POSITIVE (immediate price spike)
         for kw in _COMMODITY_ST_POS:
