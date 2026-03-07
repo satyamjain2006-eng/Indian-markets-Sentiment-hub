@@ -578,35 +578,29 @@ def combined_score(text: str) -> float:
     t = textblob_score(text)
     return round((v + t) / 2, 4)
 
-# ── Groq scorer ───────────────────────────────────────────────────────────────
-def _groq_score_batch(titles: list[str], asset_type: str = "stock") -> list[dict] | None:
-    """Score a batch of article titles using Groq (Llama 3).
-    Returns list of {score: float, label: str} or None if Groq unavailable.
-    Score is in [-1, +1]. Falls back to None so caller can use VADER."""
-    try:
-        import requests, json
-        api_key = _GROQ_API_KEY
-        if not api_key:
-            return None
+# ══════════════════════════════════════════════════════════════════════════════
+# LLM SCORER BACKENDS
+# Priority order: Groq → VADER+TextBlob
+# Each backend returns list[{score, label}] or None on failure.
+# ══════════════════════════════════════════════════════════════════════════════
 
-        asset_context = {
-            "stock":     "Indian stock / equity",
-            "index":     "Indian stock market index (Nifty 50, Sensex etc.)",
-            "commodity": "commodity (Gold, Silver, Crude Oil, Natural Gas etc.) — price rises are POSITIVE",
-            "crypto":    "cryptocurrency",
-            "forex":     "currency pair / forex",
-        }.get(asset_type, "financial")
-
-        numbered = "\n".join(f"{i+1}. {t[:200]}" for i, t in enumerate(titles))
-
-        prompt = f"""You are a financial sentiment analyser specialising in Indian markets.
-Score each headline for a {asset_context} investor. 
+def _build_llm_prompt(titles: list[str], asset_type: str) -> str:
+    """Build the shared prompt for any LLM backend."""
+    asset_context = {
+        "stock":     "Indian stock / equity",
+        "index":     "Indian stock market index (Nifty 50, Sensex etc.)",
+        "commodity": "commodity (Gold, Silver, Crude Oil, Natural Gas etc.) — price rises are POSITIVE",
+        "crypto":    "cryptocurrency",
+        "forex":     "currency pair / forex",
+    }.get(asset_type, "financial")
+    numbered = "\n".join(f"{i+1}. {t[:180]}" for i, t in enumerate(titles))
+    return f"""You are a financial sentiment analyser specialising in Indian markets.
+Score each headline for a {asset_context} investor.
 
 Rules:
 - Score ONLY from the perspective of someone holding this asset
 - "Sensex tanks 1000 pts" = negative even if some sectors rally
-- "Defence stocks rally" inside a crash headline = still negative overall
-- "RBI rate cut" = positive for stocks, positive for bonds
+- "RBI rate cut" = positive for stocks
 - "Promoter pledge" = negative for that stock
 - "Upper circuit" = strongly positive
 - "SEBI action / fraud" = strongly negative
@@ -621,7 +615,43 @@ Return exactly this JSON (array with one object per headline, in order):
 score must be between -1.0 and 1.0
 label must be exactly one of: "Positive", "Negative", "Neutral"
 """
-        resp = requests.post(
+
+def _parse_llm_response(raw: str, n: int) -> list[dict] | None:
+    """Parse JSON array from LLM response. Returns None on failure."""
+    try:
+        import json, re as _re2
+        raw = raw.replace("```json", "").replace("```", "").strip()
+        arr_match = _re2.search(r"\[.*?\]", raw, _re2.DOTALL)
+        if arr_match:
+            raw = arr_match.group(0)
+        results = json.loads(raw)
+        if not isinstance(results, list):
+            return None
+        while len(results) < n:
+            results.append({"score": 0.0, "label": "Neutral"})
+        return [{"score": float(r.get("score", 0.0)),
+                 "label": r.get("label", "Neutral")} for r in results[:n]]
+    except Exception:
+        return None
+
+def _score_via_groq(titles: list[str], asset_type: str) -> list[dict] | None:
+    """Backend 1: Groq cloud API (llama-3.3-70b-versatile). Free, fast."""
+    import requests as _req, os as _os
+    # Try every possible source for the key — belt+suspenders approach
+    api_key = _GROQ_API_KEY
+    if not api_key:
+        api_key = _os.environ.get("GROQ_API_KEY", "")
+    if not api_key:
+        try:
+            api_key = st.secrets.get("GROQ_API_KEY", "")
+        except Exception:
+            pass
+    if not api_key:
+        print("[Groq] No API key found in _GROQ_API_KEY / env / st.secrets")
+        return None
+    try:
+        prompt = _build_llm_prompt(titles, asset_type)
+        resp = _req.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}",
                      "Content-Type": "application/json"},
@@ -629,35 +659,34 @@ label must be exactly one of: "Positive", "Negative", "Neutral"
                   "messages": [{"role": "user", "content": prompt}],
                   "temperature": 0.0,
                   "max_tokens": 1500},
-            timeout=15
+            timeout=15,
         )
+        if resp.status_code == 429:
+            print("[Groq] Rate limited")
+            return None
         if resp.status_code != 200:
+            print(f"[Groq] HTTP {resp.status_code}: {resp.text[:300]}")
             return None
-
         raw = resp.json()["choices"][0]["message"]["content"].strip()
-        # Strip markdown code fences if present
-        raw = raw.replace("```json", "").replace("```", "").strip()
-        # Extract JSON array if there's surrounding text
-        import re as _re
-        arr_match = _re.search(r"\[.*\]", raw, _re.DOTALL)
-        if arr_match:
-            raw = arr_match.group(0)
-        results = json.loads(raw)
-        if not isinstance(results, list):
-            return None
-        # Pad with neutral if fewer results than titles (truncated response)
-        while len(results) < len(titles):
-            results.append({"score": 0.0, "label": "Neutral"})
-        return [{"score": float(r.get("score", 0.0)),
-                 "label": r.get("label", "Neutral")} for r in results[:len(titles)]]
+        result = _parse_llm_response(raw, len(titles))
+        if result is None:
+            print(f"[Groq] JSON parse failed. Raw response: {raw[:300]}")
+        else:
+            print(f"[Groq] OK — scored {len(titles)} titles, asset_type={asset_type}")
+        return result
     except Exception as _e:
-        # Surface error in Streamlit logs for debugging
         import traceback
-        print(f"[Groq] Error for asset_type={asset_type}, n_titles={len(titles)}: {_e}")
+        print(f"[Groq] Exception: {type(_e).__name__}: {_e}")
         print(traceback.format_exc())
         global _GROQ_LAST_ERROR
-        _GROQ_LAST_ERROR = f"{type(_e).__name__}: {_e}"
+        _GROQ_LAST_ERROR = f"Groq: {type(_e).__name__}: {_e}"
         return None
+
+def _groq_score_batch(titles: list[str], asset_type: str = "stock") -> list[dict] | None:
+    """LLM scorer — Groq (Llama 3) primary, None triggers VADER+TextBlob fallback."""
+    if not titles:
+        return None
+    return _score_via_groq(titles, asset_type)
 
 # ── Method A: Finance-specific keyword booster ────────────────────────────────
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1376,14 +1405,16 @@ def fetch_news(company_name: str, symbol: str = "") -> pd.DataFrame:
     groq_results = _groq_score_batch(df["title"].tolist(), asset_type=asset_type) if not df.empty else None
 
     if groq_results is not None:
-        # ── Groq path ────────────────────────────────────────────────────────
-        df["compound"]      = [r["score"] for r in groq_results]
-        df["label"]         = [r["label"] for r in groq_results]
-        df["vader_score"]   = df["compound"]   # for display in meta row
-        df["textblob_score"] = df["compound"]  # same — Groq is single score
-        df["boost"]         = 0.0
+        # ── Groq path ────────────────────────────────────────────────────
+        df["compound"]       = [r["score"] for r in groq_results]
+        df["label"]          = [r["label"] for r in groq_results]
+        df["vader_score"]    = df["compound"]
+        df["textblob_score"] = df["compound"]
+        df["boost"]          = 0.0
         df["combined_score"] = df["compound"]
-        df["scorer"]        = "Groq (Llama 3)"
+        # Detect which backend was used from the _backend tag on results
+        _backend_used = groq_results[0].get("_backend", "Groq (Llama 3)") if groq_results else "Groq (Llama 3)"
+        df["scorer"] = _backend_used
     else:
         # ── VADER + TextBlob fallback ─────────────────────────────────────────
         df["vader_score"]    = df["score_text"].apply(vader_score)
@@ -2677,13 +2708,13 @@ news_keyword = get_news_keyword(primary_name)
 # Show which scorer was actually used — Groq or VADER fallback
 _scorer_used  = news_df["scorer"].iloc[0] if not news_df.empty and "scorer" in news_df.columns else "VADER + TextBlob"
 scorer_label  = _scorer_used
-scorer_color  = "#22d3ee" if "Groq" in _scorer_used else "#a78bfa"
+scorer_color = "#22d3ee" if "Groq" in _scorer_used else "#a78bfa"
 scorer_badge  = f"<span style='font-size:0.72rem;background:#1a2035;border:1px solid {scorer_color};color:{scorer_color};padding:2px 8px;border-radius:20px;margin-left:8px'>{scorer_label}</span>"
 
 # ── Groq key check ───────────────────────────────────────────────────────────
 _groq_key = st.secrets.get("GROQ_API_KEY", "")
 if not _groq_key:
-    st.warning("⚠️ GROQ_API_KEY not found in st.secrets — using VADER fallback. "
+    st.warning("⚠️ GROQ_API_KEY not found in st.secrets — using VADER+TextBlob fallback. "
                "Add it in Streamlit Cloud → App Settings → Secrets.")
 elif _GROQ_LAST_ERROR:
     st.warning(f"⚠️ Groq failed (using VADER fallback): `{_GROQ_LAST_ERROR}`")
@@ -2727,8 +2758,8 @@ if not news_df.empty:
 
     for _, row in filtered.iterrows():
         bc = badge_class(row["label"])
-        _is_groq = "Groq" in str(row.get("scorer", ""))
-        if _is_groq:
+        _scorer = str(row.get("scorer", ""))
+        if "Groq" in _scorer:
             score_detail = f"Groq:{row['compound']:+.2f}"
         else:
             v_score = row.get("vader_score", row["compound"])
@@ -2775,8 +2806,8 @@ else:
             )
             for _, row in general_df.head(10).iterrows():
                 bc = badge_class(row["label"])
-                _is_groq = "Groq" in str(row.get("scorer", ""))
-                if _is_groq:
+                _scorer = str(row.get("scorer", ""))
+                if "Groq" in _scorer:
                     score_detail = f"Groq:{row['compound']:+.2f}"
                 else:
                     v_score = row.get("vader_score", row["compound"])
