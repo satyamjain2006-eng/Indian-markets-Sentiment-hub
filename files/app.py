@@ -1137,9 +1137,9 @@ def badge_class(label):
 
 
 @st.cache_data(ttl=311, max_entries=10, show_spinner=False)
-def fetch_news(company_name: str) -> pd.DataFrame:
+def fetch_news(company_name: str, symbol: str = "") -> pd.DataFrame:
     keyword  = get_news_keyword(company_name)
-    symbol   = st.session_state.get("primary_symbol", "")
+    # symbol passed explicitly — never read st.session_state inside cached/threaded fn
 
     # ── Determine asset type ──────────────────────────────────────────────────
     is_commodity = company_name in _COMMODITY_ASSETS
@@ -2150,7 +2150,8 @@ else:
 with st.spinner(f"Loading {primary_name}…"):
     with ThreadPoolExecutor(max_workers=2) as executor:
         fut_price = executor.submit(fetch_price, primary_ticker, period)
-        fut_news  = executor.submit(fetch_news, primary_name)
+        _symbol = st.session_state.get("primary_symbol", "")
+        fut_news  = executor.submit(fetch_news, primary_name, _symbol)
         price_df, market_closed = fut_price.result()
         news_df   = fut_news.result()
 
@@ -2755,7 +2756,7 @@ else:
         )
         # Fetch general market news as fallback
         with st.spinner("Loading general market news…"):
-            general_df = fetch_news("Nifty 50")
+            general_df = fetch_news("Nifty 50", "^NSEI")
         if not general_df.empty:
             st.markdown(
                 "<div style='color:#8892a4;font-size:0.82rem;margin-bottom:10px;"
