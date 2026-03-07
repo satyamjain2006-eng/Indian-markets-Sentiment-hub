@@ -2133,11 +2133,16 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
 
         fig_ca = go.Figure()
         for df, label, color in [(ca_df_a, ca_name_a, "#5c7cfa"), (ca_df_b, ca_name_b, "#00d4aa")]:
-            df = df.drop_duplicates(subset=["Date"]).sort_values("Date").reset_index(drop=True)
-            close = df["Close"].astype(float)
+            d = df[["Date","Close"]].copy()
+            # Strip tz from Date so drop_duplicates works across tz-aware/naive
+            d["Date"] = pd.to_datetime(d["Date"]).dt.tz_localize(None)                         if pd.to_datetime(d["Date"]).dt.tz is not None                         else pd.to_datetime(d["Date"])
+            # For periods with weekly/monthly candles, normalize to date only
+            d["Date"] = d["Date"].dt.normalize()
+            d = d.drop_duplicates(subset=["Date"]).sort_values("Date").reset_index(drop=True)
+            close = d["Close"].astype(float)
             norm  = close / close.iloc[0] * 100
             fig_ca.add_trace(go.Scatter(
-                x=df["Date"], y=norm, name=label,
+                x=d["Date"], y=norm, name=label,
                 line=dict(color=color, width=2.5, shape="spline", smoothing=0.6),
                 hovertemplate="%{y:.2f}<extra>" + label + "</extra>"
             ))
@@ -2361,13 +2366,25 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
 
                 import math
 
-                # Normalised price levels for all periods
-                # Chart and correlation use the same data — visually consistent
-                merged_price = pd.concat([price_a, price_b], axis=1, sort=True).dropna()
-                corr = merged_price["A"].corr(merged_price["B"]) if len(merged_price) >= 5 else float("nan")
-                r2   = corr ** 2 if not math.isnan(corr) else 0.0
-                if not math.isnan(corr):
-                    _render_stats(corr, r2, len(merged_price), period)
+                # Correlation strategy by period:
+                # 1mo  → price levels (too few points for returns to be meaningful)
+                # 3mo+ → daily returns (avoids spurious +1.00 from shared bull trends)
+                # Chart always uses normalised price levels (visual consistency)
+                if period == "1mo":
+                    merged_price = pd.concat([price_a, price_b], axis=1, sort=True).dropna()
+                    corr = merged_price["A"].corr(merged_price["B"]) if len(merged_price) >= 5 else float("nan")
+                    r2   = corr ** 2 if not math.isnan(corr) else 0.0
+                    if not math.isnan(corr):
+                        _render_stats(corr, r2, len(merged_price), period)
+                else:
+                    # Daily returns — statistically honest, not fooled by shared trends
+                    ret_a = price_a.pct_change().dropna()
+                    ret_b = price_b.pct_change().dropna()
+                    merged_ret = pd.concat([ret_a, ret_b], axis=1, sort=True).dropna()
+                    corr = merged_ret["A"].corr(merged_ret["B"]) if len(merged_ret) >= 10 else float("nan")
+                    r2   = corr ** 2 if not math.isnan(corr) else 0.0
+                    if not math.isnan(corr):
+                        _render_stats(corr, r2, len(merged_ret), period)
 
         except Exception as _corr_err:
             st.markdown(
