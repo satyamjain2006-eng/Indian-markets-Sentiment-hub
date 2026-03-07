@@ -1669,25 +1669,17 @@ def build_sentiment_trend(df: pd.DataFrame) -> go.Figure:
     fig.add_hline(y=0.07,  line_dash="dot", line_color="rgba(0,212,170,0.3)",  line_width=1)
     fig.add_hline(y=-0.07, line_dash="dot", line_color="rgba(255,75,110,0.3)", line_width=1)
 
-    # ── Individual model lines ────────────────────────────────────────────────
-    fig.add_trace(go.Scatter(
-        x=daily["date"], y=daily["vader_score"],
-        mode="lines", name="VADER",
-        line=dict(color="rgba(255,209,102,0.5)", width=1.5, dash="dot"),
-        hovertemplate="VADER: %{y:.3f}<extra></extra>",
-    ))
-    fig.add_trace(go.Scatter(
-        x=daily["date"], y=daily["textblob_score"],
-        mode="lines", name="TextBlob",
-        line=dict(color="rgba(255,100,180,0.5)", width=1.5, dash="dot"),
-        hovertemplate="TextBlob: %{y:.3f}<extra></extra>",
-    ))
-
+    # ── Detect scorer for legend label ───────────────────────────────────────
+    _scorer_name = "Groq (Llama 3)"
+    if "scorer" in df.columns:
+        top_scorer = df["scorer"].mode()
+        if not top_scorer.empty and "Groq" not in str(top_scorer.iloc[0]):
+            _scorer_name = "VADER + TextBlob"
 
     # ── Connector line ────────────────────────────────────────────────────────
     fig.add_trace(go.Scatter(
         x=daily["date"], y=daily["compound"],
-        mode="lines", name="Combined",
+        mode="lines", name=_scorer_name,
         line=dict(color="rgba(92,124,250,0.6)", width=2),
         hoverinfo="skip", showlegend=True,
     ))
@@ -1698,19 +1690,13 @@ def build_sentiment_trend(df: pd.DataFrame) -> go.Figure:
         sub  = daily[mask]
         if sub.empty:
             continue
-        # Customdata: titles, article_count, compound, vader, textblob
-        if True:
-            cdata = np.stack([sub["titles"], sub["article_count"],
-                              sub["compound"], sub["vader_score"],
-                              sub["textblob_score"]], axis=1)
-            hover = (
-                "<b>%{x|%d %B %Y}</b><br>"
-                "Combined: <b>%{customdata[2]:.3f}</b><br>"
-                "VADER: %{customdata[3]:.3f} &nbsp;|&nbsp; "
-                "TextBlob: %{customdata[4]:.3f}<br>"
-                "Articles: <b>%{customdata[1]}</b><br>"
-                "%{customdata[0]}<extra></extra>"
-            )
+        cdata = np.stack([sub["titles"], sub["article_count"], sub["compound"]], axis=1)
+        hover = (
+            "<b>%{x|%d %B %Y}</b><br>"
+            "Score: <b>%{customdata[2]:.3f}</b><br>"
+            "Articles: <b>%{customdata[1]}</b><br>"
+            "%{customdata[0]}<extra></extra>"
+        )
         fig.add_trace(go.Scatter(
             x=sub["date"], y=sub["compound"],
             mode="markers", name=label,
@@ -1725,7 +1711,7 @@ def build_sentiment_trend(df: pd.DataFrame) -> go.Figure:
         template="plotly_dark", paper_bgcolor="#0e1320", plot_bgcolor="#0e1320",
         margin=dict(l=10, r=10, t=44, b=50), height=380,
         title=dict(
-            text="<b>Daily Sentiment</b>  <span style='font-size:11px;color:#6b7a99'>· bubble size = article volume · lines = individual models</span>",
+            text="<b>Daily Sentiment</b>  <span style='font-size:11px;color:#6b7a99'>· bubble size = article volume · line = sentiment score</span>",
             font=dict(size=13, color="#c0cce0"), x=0.01, xanchor="left"
         ),
         xaxis=dict(showgrid=False, color="#4a5568", tickformat="%d %b",
