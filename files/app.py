@@ -647,6 +647,10 @@ label must be exactly one of: "Positive", "Negative", "Neutral"
         return [{"score": float(r.get("score", 0.0)),
                  "label": r.get("label", "Neutral")} for r in results[:len(titles)]]
     except Exception as _e:
+        # Surface error in Streamlit logs for debugging
+        import traceback
+        print(f"[Groq] Error for asset_type={asset_type}, n_titles={len(titles)}: {_e}")
+        print(traceback.format_exc())
         return None
 
 # ── Method A: Finance-specific keyword booster ────────────────────────────────
