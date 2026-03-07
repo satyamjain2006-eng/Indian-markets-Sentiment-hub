@@ -43,8 +43,9 @@ st.set_page_config(
 from streamlit_autorefresh import st_autorefresh
 st_autorefresh(interval=300_000, limit=None, key="autorefresh")
 
-# Read secrets once at module level — available everywhere including cached fns
-_GROQ_API_KEY: str = st.secrets.get("GROQ_API_KEY", "")
+# NOTE: _GROQ_API_KEY is NOT read at module level — st.secrets isn't ready then.
+# It is read fresh inside _score_via_groq on every call instead.
+_GROQ_API_KEY: str = ""   # placeholder — actual value read in _score_via_groq
 _GROQ_LAST_ERROR: str = ""  # captures last Groq exception for display
 
 st.markdown("""
@@ -637,17 +638,18 @@ def _parse_llm_response(raw: str, n: int) -> list[dict] | None:
 def _score_via_groq(titles: list[str], asset_type: str) -> list[dict] | None:
     """Backend 1: Groq cloud API (llama-3.3-70b-versatile). Free, fast."""
     import requests as _req, os as _os
-    # Try every possible source for the key — belt+suspenders approach
-    api_key = _GROQ_API_KEY
+    # Always read fresh from st.secrets first — module-level read happens too early
+    api_key = ""
+    try:
+        api_key = st.secrets.get("GROQ_API_KEY", "")
+    except Exception:
+        pass
     if not api_key:
         api_key = _os.environ.get("GROQ_API_KEY", "")
     if not api_key:
-        try:
-            api_key = st.secrets.get("GROQ_API_KEY", "")
-        except Exception:
-            pass
+        api_key = _GROQ_API_KEY  # last resort fallback
     if not api_key:
-        print("[Groq] No API key found in _GROQ_API_KEY / env / st.secrets")
+        print("[Groq] No API key found in st.secrets / env / _GROQ_API_KEY")
         return None
     try:
         prompt = _build_llm_prompt(titles, asset_type)
