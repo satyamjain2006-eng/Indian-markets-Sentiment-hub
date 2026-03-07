@@ -1057,7 +1057,7 @@ def badge_class(label):
     return {"Positive":"b-pos","Negative":"b-neg","Neutral":"b-neu"}.get(label,"")
 
 
-@st.cache_data(ttl=300, max_entries=10, show_spinner=False)
+@st.cache_data(ttl=301, max_entries=10, show_spinner=False)
 def fetch_news(company_name: str) -> pd.DataFrame:
     keyword  = get_news_keyword(company_name)
     symbol   = st.session_state.get("primary_symbol", "")
@@ -1343,6 +1343,39 @@ def fetch_news(company_name: str) -> pd.DataFrame:
         # No impact on non-commodity assets or non-supply-shock articles.
         df["vader_score"]    = df["vader_score"].where(~has_st_shock, df["vader_score"] * 0.20)
         df["textblob_score"] = df["textblob_score"].where(~has_st_shock, df["textblob_score"] * 0.20)
+
+    # ── Mixed-signal correction ──────────────────────────────────────────────
+    # If title contains a crash verb (tanks/falls/sinks/settles lower etc.)
+    # AND a magnitude indicator (pts/points/%), VADER's positive score is
+    # halved before adding boost. Prevents "defence stocks rally" in a crash
+    # headline from flipping the overall score to Positive.
+    _CRASH_V = {"tanks","tanked","crashes","crashed","plunges","plunged",
+                "plummets","plummeted","sinks","sank","slumps","slumped",
+                "tumbles","tumbled","falls","fell","drops","dropped",
+                "settles lower","closes lower","ends lower","sheds","skids",
+                "bleeds","bled","collapses","collapsed","nosedives","nosedived"}
+    _MAG     = {"pts","points","%","percent"}
+
+    title_lower = df["title"].str.lower().fillna("")
+    has_cv  = pd.Series(False, index=df.index)
+    for v in _CRASH_V:
+        has_cv |= title_lower.str.contains(r'' + v.replace(" ", r'\s+') + r'',
+                                            regex=True, na=False)
+    has_mag = pd.Series(False, index=df.index)
+    for m in _MAG:
+        has_mag |= title_lower.str.contains(m, regex=False, na=False)
+
+    is_crash_headline = has_cv & has_mag
+
+    # Halve VADER/TextBlob positive scores on crash headlines
+    df["vader_score"] = df["vader_score"].where(
+        ~is_crash_headline | (df["vader_score"] <= 0),
+        df["vader_score"] * 0.5
+    )
+    df["textblob_score"] = df["textblob_score"].where(
+        ~is_crash_headline | (df["textblob_score"] <= 0),
+        df["textblob_score"] * 0.5
+    )
 
     df["vader_score"]    = (df["vader_score"]    + df["boost"]).clip(-1.0, 1.0).round(4)
     df["textblob_score"] = (df["textblob_score"] + df["boost"]).clip(-1.0, 1.0).round(4)
