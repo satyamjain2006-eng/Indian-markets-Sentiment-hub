@@ -1136,7 +1136,7 @@ def badge_class(label):
     return {"Positive":"b-pos","Negative":"b-neg","Neutral":"b-neu"}.get(label,"")
 
 
-@st.cache_data(ttl=303, max_entries=10, show_spinner=False)
+@st.cache_data(ttl=300, max_entries=10, show_spinner=False)
 def fetch_news(company_name: str) -> pd.DataFrame:
     keyword  = get_news_keyword(company_name)
     symbol   = st.session_state.get("primary_symbol", "")
@@ -1487,18 +1487,19 @@ def _yf_download_safe(ticker: str, **kwargs) -> pd.DataFrame:
     try:
         data = yf.download(ticker, progress=False, auto_adjust=True, **kwargs)
         if data.empty:
-            # Single retry after 1s backoff
-            time.sleep(1.0)
+            time.sleep(2.0)
             data = yf.download(ticker, progress=False, auto_adjust=True, **kwargs)
         return data
-    except Exception:
+    except Exception as _yfe:
+        # YFRateLimitError — back off longer before retry
+        _is_rate_limit = "rate" in str(_yfe).lower() or "429" in str(_yfe)
+        time.sleep(5.0 if _is_rate_limit else 1.0)
         try:
-            time.sleep(1.0)
             return yf.download(ticker, progress=False, auto_adjust=True, **kwargs)
         except Exception:
             return pd.DataFrame()
 
-@st.cache_data(ttl=61, max_entries=20, show_spinner=False)
+@st.cache_data(ttl=300, max_entries=20, show_spinner=False)
 def fetch_price(ticker: str, period: str) -> tuple:
     def _clean(df: pd.DataFrame, is_intraday: bool) -> pd.DataFrame:
         if df.empty:
