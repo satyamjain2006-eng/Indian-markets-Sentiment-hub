@@ -1502,11 +1502,20 @@ def fetch_price(ticker: str, period: str) -> tuple:
         df = df.reset_index()
         if "Datetime" in df.columns:
             df = df.rename(columns={"Datetime": "Date"})
-        if is_intraday and "Date" in df.columns and not df.empty:
-            if hasattr(df["Date"].dtype, "tz") and df["Date"].dt.tz is not None:
-                df["Date"] = df["Date"].dt.tz_convert("Asia/Kolkata").dt.tz_localize(None)
+        if "Date" in df.columns and not df.empty:
+            if is_intraday:
+                if hasattr(df["Date"].dtype, "tz") and df["Date"].dt.tz is not None:
+                    df["Date"] = df["Date"].dt.tz_convert("Asia/Kolkata").dt.tz_localize(None)
+                else:
+                    df["Date"] = pd.to_datetime(df["Date"]) + pd.Timedelta(hours=5, minutes=30)
             else:
-                df["Date"] = pd.to_datetime(df["Date"]) + pd.Timedelta(hours=5, minutes=30)
+                # Strip tz for daily data — Dow Jones etc. come tz-aware (America/New_York)
+                # Keep the calendar date as-is (tz_convert not utc — avoids date shifting)
+                dates = pd.to_datetime(df["Date"])
+                if dates.dt.tz is not None:
+                    df["Date"] = dates.dt.tz_convert(None)
+                else:
+                    df["Date"] = dates
         df = df.drop_duplicates(subset=["Date"]).sort_values("Date").reset_index(drop=True)
         return df
 
