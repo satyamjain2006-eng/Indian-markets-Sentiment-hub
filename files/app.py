@@ -2155,6 +2155,7 @@ with st.spinner(f"Loading {primary_name}…"):
     with ThreadPoolExecutor(max_workers=2) as executor:
         fut_price = executor.submit(fetch_price, primary_ticker, period)
         _groq_key = st.secrets.get("GROQ_API_KEY", "")
+        print(f"[MAIN] groq_key={'SET('+str(len(_groq_key))+')' if _groq_key else 'EMPTY'}, asset={asset_type}, name={primary_name}")
         fut_news  = executor.submit(fetch_news, primary_name,
                                        st.session_state.get("primary_symbol",""),
                                        asset_type, _groq_key)
