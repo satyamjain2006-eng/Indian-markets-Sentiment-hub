@@ -637,7 +637,6 @@ def _parse_llm_response(raw: str, n: int) -> list[dict] | None:
 def _score_via_groq(titles: list[str], asset_type: str) -> list[dict] | None:
     """Backend 1: Groq cloud API (llama-3.3-70b-versatile). Free, fast."""
     import requests as _req, os as _os
-    # Try every possible source for the key — belt+suspenders approach
     api_key = _GROQ_API_KEY
     if not api_key:
         api_key = _os.environ.get("GROQ_API_KEY", "")
@@ -647,8 +646,11 @@ def _score_via_groq(titles: list[str], asset_type: str) -> list[dict] | None:
         except Exception:
             pass
     if not api_key:
-        print("[Groq] No API key found in _GROQ_API_KEY / env / st.secrets")
+        _dbg = "❌ No API key found in module global / env / st.secrets"
+        st.session_state["_groq_debug"] = _dbg
         return None
+    # Mask key for display: show first 8 chars only
+    key_preview = api_key[:8] + "…" if len(api_key) > 8 else "too short"
     try:
         prompt = _build_llm_prompt(titles, asset_type)
         resp = _req.post(
@@ -662,24 +664,28 @@ def _score_via_groq(titles: list[str], asset_type: str) -> list[dict] | None:
             timeout=15,
         )
         if resp.status_code == 429:
-            print("[Groq] Rate limited")
+            _dbg = f"❌ Rate limited (429) — key: {key_preview}"
+            st.session_state["_groq_debug"] = _dbg
             return None
         if resp.status_code != 200:
-            print(f"[Groq] HTTP {resp.status_code}: {resp.text[:300]}")
+            _dbg = f"❌ HTTP {resp.status_code} — key: {key_preview} — {resp.text[:200]}"
+            st.session_state["_groq_debug"] = _dbg
             return None
         raw = resp.json()["choices"][0]["message"]["content"].strip()
         result = _parse_llm_response(raw, len(titles))
         if result is None:
-            print(f"[Groq] JSON parse failed. Raw response: {raw[:300]}")
+            _dbg = f"❌ JSON parse failed — key: {key_preview} — raw: {raw[:200]}"
+            st.session_state["_groq_debug"] = _dbg
         else:
-            print(f"[Groq] OK — scored {len(titles)} titles, asset_type={asset_type}")
+            _dbg = f"✅ OK — scored {len(titles)} titles | asset: {asset_type} | key: {key_preview}"
+            st.session_state["_groq_debug"] = _dbg
         return result
     except Exception as _e:
-        import traceback
-        print(f"[Groq] Exception: {type(_e).__name__}: {_e}")
-        print(traceback.format_exc())
+        import traceback as _tb
+        _dbg = f"❌ Exception: {type(_e).__name__}: {_e} — key: {key_preview}"
+        st.session_state["_groq_debug"] = _dbg
         global _GROQ_LAST_ERROR
-        _GROQ_LAST_ERROR = f"Groq: {type(_e).__name__}: {_e}"
+        _GROQ_LAST_ERROR = f"{type(_e).__name__}: {_e}"
         return None
 
 def _groq_score_batch(titles: list[str], asset_type: str = "stock") -> list[dict] | None:
@@ -2747,6 +2753,23 @@ if not _groq_key:
                "Add it in Streamlit Cloud → App Settings → Secrets.")
 elif _GROQ_LAST_ERROR:
     st.warning(f"⚠️ Groq failed (using VADER fallback): `{_GROQ_LAST_ERROR}`")
+
+# ── Groq debug panel — always visible so you can diagnose without logs ────────
+with st.expander("🔧 Groq Debug", expanded=False):
+    key_val = st.secrets.get("GROQ_API_KEY", "")
+    if key_val:
+        st.markdown(f"**Key in secrets:** `{key_val[:8]}…` (length: {len(key_val)})")
+    else:
+        st.markdown("**Key in secrets:** ❌ NOT SET")
+    st.markdown(f"**Module-level `_GROQ_API_KEY`:** `{'SET (' + _GROQ_API_KEY[:8] + '…)' if _GROQ_API_KEY else 'EMPTY'}`")
+    st.markdown(f"**Last Groq call result:**")
+    dbg = st.session_state.get("_groq_debug", "No Groq call made yet this session")
+    color = "#00d4aa" if "✅" in dbg else "#ff4b6e"
+    st.markdown(f"<div style='background:#0e1320;border:1px solid {color};border-radius:8px;"
+                f"padding:10px;font-family:monospace;font-size:0.82rem;color:{color}'>{dbg}</div>",
+                unsafe_allow_html=True)
+    if _GROQ_LAST_ERROR:
+        st.markdown(f"**Last error:** `{_GROQ_LAST_ERROR}`")
 st.markdown(f"### 🗞️ Latest News &nbsp;<span style='font-size:0.8rem;color:#5c7cfa'>searching: '{news_keyword}'</span>{scorer_badge}",
             unsafe_allow_html=True)
 
