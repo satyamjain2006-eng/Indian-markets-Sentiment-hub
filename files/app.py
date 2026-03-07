@@ -2192,19 +2192,12 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
         fig_ca = go.Figure()
         for df, label, color in [(ca_df_a, ca_name_a, "#5c7cfa"), (ca_df_b, ca_name_b, "#00d4aa")]:
             d = df[["Date","Close"]].copy()
-            # Strip tz label without converting — utc=True shifts IST by -5:30
-            # causing date mismatches. tz_convert(None) removes label in-place.
-            _dates = pd.to_datetime(d["Date"])
-            try:
-                if _dates.dt.tz is not None:
-                    _dates = _dates.dt.tz_convert(None)
-            except Exception:
-                _dates = pd.to_datetime(d["Date"].astype(str).str[:10])
-            d["Date"] = _dates
-            # Normalize to date only (removes time component, handles weekly candles)
-            d["Date"] = d["Date"].dt.normalize()
+            # Convert Date to plain YYYY-MM-DD string — sidesteps ALL tz/duplicate issues
+            # str[:10] always gives the calendar date the exchange recorded, no conversion
+            d["Date"] = d["Date"].astype(str).str[:10]
+            d = d[d["Date"].str.match(r"\d{4}-\d{2}-\d{2}")]  # drop malformed rows
             d = d.drop_duplicates(subset=["Date"]).sort_values("Date").reset_index(drop=True)
-            if d.empty:
+            if d.empty or len(d) < 2:
                 continue
             close = d["Close"].astype(float)
             norm  = close / close.iloc[0] * 100
