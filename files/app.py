@@ -1805,21 +1805,44 @@ def resolve_asset(asset_type: str, session_key: str, df_companies: pd.DataFrame)
         st.session_state[name_key]   = pick
         st.session_state[ticker_key] = POPULAR_FOREX_SHORT[pick]
     elif asset_type == "🇮🇳 Stock":
-        q = st.text_input("Search company / symbol",
-                          placeholder="e.g. Reliance, TCS, HDFC…",
-                          key=f"{session_key}_q", label_visibility="collapsed")
-        if q:
-            results = search_companies(q, df_companies)
-            if results.empty:
-                st.caption("No results found.")
-            else:
-                for _, row in results.iterrows():
-                    if st.button(f"{row['name']}  [{row['symbol']}]",
-                                 key=f"{session_key}_btn_{row['symbol']}", use_container_width=True):
-                        st.session_state[name_key]   = row["name"]
-                        st.session_state[ticker_key] = row["yf_ns"]
-        if name_key in st.session_state:
-            st.caption(f"✅ **{st.session_state[name_key]}** (`{st.session_state[ticker_key]}`)")
+        selected_key = f"{session_key}_selected"
+
+        # If a stock is selected, show it in the input and a clear button
+        if st.session_state.get(selected_key):
+            col_sel, col_clr = st.columns([5, 1])
+            with col_sel:
+                st.markdown(
+                    f"<div style='background:#0e3a1a;border:1px solid #22c55e;border-radius:8px;"
+                    f"padding:8px 12px;font-size:0.88rem;color:#22c55e;font-weight:600'>"
+                    f"✅ {st.session_state[name_key]}"
+                    f"<span style='color:#6b7a99;font-weight:400;font-size:0.78rem'>"
+                    f"  [{st.session_state.get(ticker_key,'')}]</span></div>",
+                    unsafe_allow_html=True
+                )
+            with col_clr:
+                if st.button("✕", key=f"{session_key}_clear", help="Clear selection",
+                             use_container_width=True):
+                    st.session_state[selected_key] = False
+                    st.session_state[name_key]     = None
+                    st.session_state[ticker_key]   = None
+                    st.rerun()
+        else:
+            q = st.text_input("Search company / symbol",
+                              placeholder="e.g. Reliance, TCS, HDFC…",
+                              key=f"{session_key}_q", label_visibility="collapsed")
+            if q:
+                results = search_companies(q, df_companies)
+                if results.empty:
+                    st.caption("No results found.")
+                else:
+                    for _, row in results.iterrows():
+                        if st.button(f"{row['name']}  [{row['symbol']}]",
+                                     key=f"{session_key}_btn_{row['symbol']}",
+                                     use_container_width=True):
+                            st.session_state[name_key]    = row["name"]
+                            st.session_state[ticker_key]  = row["yf_ns"]
+                            st.session_state[selected_key] = True
+                            st.rerun()
     return (st.session_state.get(name_key), st.session_state.get(ticker_key))
 
 
