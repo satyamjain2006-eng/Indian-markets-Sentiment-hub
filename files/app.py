@@ -574,6 +574,73 @@ def combined_score(text: str) -> float:
     t = textblob_score(text)
     return round((v + t) / 2, 4)
 
+# ── Groq scorer ───────────────────────────────────────────────────────────────
+def _groq_score_batch(titles: list[str], asset_type: str = "stock") -> list[dict] | None:
+    """Score a batch of article titles using Groq (Llama 3).
+    Returns list of {score: float, label: str} or None if Groq unavailable.
+    Score is in [-1, +1]. Falls back to None so caller can use VADER."""
+    try:
+        import requests, json
+        api_key = st.secrets.get("GROQ_API_KEY", "")
+        if not api_key:
+            return None
+
+        asset_context = {
+            "stock":     "Indian stock / equity",
+            "index":     "Indian stock market index (Nifty 50, Sensex etc.)",
+            "commodity": "commodity (Gold, Silver, Crude Oil, Natural Gas etc.) — price rises are POSITIVE",
+            "crypto":    "cryptocurrency",
+            "forex":     "currency pair / forex",
+        }.get(asset_type, "financial")
+
+        numbered = "\n".join(f"{i+1}. {t[:200]}" for i, t in enumerate(titles))
+
+        prompt = f"""You are a financial sentiment analyser specialising in Indian markets.
+Score each headline for a {asset_context} investor. 
+
+Rules:
+- Score ONLY from the perspective of someone holding this asset
+- "Sensex tanks 1000 pts" = negative even if some sectors rally
+- "Defence stocks rally" inside a crash headline = still negative overall
+- "RBI rate cut" = positive for stocks, positive for bonds
+- "Promoter pledge" = negative for that stock
+- "Upper circuit" = strongly positive
+- "SEBI action / fraud" = strongly negative
+- Return ONLY valid JSON, no explanation, no markdown
+
+Headlines:
+{numbered}
+
+Return exactly this JSON (array with one object per headline, in order):
+[{{"score": 0.00, "label": "Neutral"}}, ...]
+
+score must be between -1.0 and 1.0
+label must be exactly one of: "Positive", "Negative", "Neutral"
+"""
+        resp = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}",
+                     "Content-Type": "application/json"},
+            json={"model": "llama-3.1-8b-instant",
+                  "messages": [{"role": "user", "content": prompt}],
+                  "temperature": 0.0,
+                  "max_tokens": 800},
+            timeout=15
+        )
+        if resp.status_code != 200:
+            return None
+
+        raw = resp.json()["choices"][0]["message"]["content"].strip()
+        # Strip markdown code fences if present
+        raw = raw.replace("```json", "").replace("```", "").strip()
+        results = json.loads(raw)
+        if isinstance(results, list) and len(results) == len(titles):
+            return [{"score": float(r.get("score", 0.0)),
+                     "label": r.get("label", "Neutral")} for r in results]
+        return None
+    except Exception:
+        return None
+
 # ── Method A: Finance-specific keyword booster ────────────────────────────────
 # ══════════════════════════════════════════════════════════════════════════════
 # FINANCIAL KEYWORD DICTIONARIES
@@ -1285,105 +1352,54 @@ def fetch_news(company_name: str) -> pd.DataFrame:
     df["score_text"]  = df["title"] + " " + desc_trimmed.where(desc_trimmed.str.strip() != "", "")
     df["score_text"]  = df["score_text"].str.strip()
 
-    # ── Base model scores ─────────────────────────────────────────────────────
-    df["vader_score"]    = df["score_text"].apply(vader_score)
-    df["textblob_score"] = df["score_text"].apply(textblob_score)
+    # ── Scoring pipeline ──────────────────────────────────────────────────────
+    # Primary: Groq (Llama 3) — understands sentence context
+    # Fallback: VADER + TextBlob + keyword boost — if Groq unavailable
+    groq_results = _groq_score_batch(df["title"].tolist(), asset_type=asset_type)                    if not df.empty else None
 
-    # ── Method A: context-aware keyword boost ────────────────────────────────
-    # Strip company name words from boost_text before keyword matching.
-    # Prevents company names containing financial words (e.g. "Oil Tankers Ltd",
-    # "Tank Terminal", "Bear Creek", "Bullish Ventures") from triggering
-    # false keyword boosts. VADER/TextBlob still score on full text.
-    _company_words = set(keyword.lower().split()) if keyword else set()
-    # Also strip common suffixes that are never sentiment signals
-    _company_words |= {"ltd","limited","inc","corp","corporation","pvt",
-                        "private","public","industries","industry","holdings",
-                        "group","enterprises","solutions","services","technologies",
-                        "technology","energy","power","finance","financial",
-                        "capital","ventures","resources","infrastructure"}
-    def _strip_company_words(text: str) -> str:
-        if not _company_words:
-            return text
-        import re
-        t = text
-        for w in _company_words:
-            # Only strip if word appears as standalone word (not inside another word)
-            # e.g. strip "tank" from "Oil Tank Ltd" but not from "tankers quarterly"
-            if len(w) >= 4:   # skip very short words like "oil", "gas" etc
-                t = re.sub(r'' + re.escape(w) + r'', ' ', t, flags=re.IGNORECASE)
-        return t
+    if groq_results is not None:
+        # ── Groq path ────────────────────────────────────────────────────────
+        df["compound"]      = [r["score"] for r in groq_results]
+        df["label"]         = [r["label"] for r in groq_results]
+        df["vader_score"]   = df["compound"]   # for display in meta row
+        df["textblob_score"] = df["compound"]  # same — Groq is single score
+        df["boost"]         = 0.0
+        df["combined_score"] = df["compound"]
+        df["scorer"]        = "Groq (Llama 3)"
+    else:
+        # ── VADER + TextBlob fallback ─────────────────────────────────────────
+        df["vader_score"]    = df["score_text"].apply(vader_score)
+        df["textblob_score"] = df["score_text"].apply(textblob_score)
 
-    boost_text = df["score_text"].apply(_strip_company_words)
-    df["boost"] = finance_boost_series(boost_text, asset_type=asset_type)
+        _company_words = set(keyword.lower().split()) if keyword else set()
+        _company_words |= {"ltd","limited","inc","corp","corporation","pvt",
+                            "private","public","industries","industry","holdings",
+                            "group","enterprises","solutions","services","technologies",
+                            "technology","energy","power","finance","financial",
+                            "capital","ventures","resources","infrastructure"}
+        def _strip_company_words(text: str) -> str:
+            if not _company_words:
+                return text
+            t = text
+            for w in _company_words:
+                if len(w) >= 4:
+                    t = re.sub(r"" + re.escape(w) + r"", " ", t, flags=re.IGNORECASE)
+            return t
 
-    if asset_type == "commodity":
-        # VADER/TextBlob are unreliable for commodities — "war","conflict" are
-        # hardcoded deeply negative in VADER even when they signal price rises.
-        # We zero VADER/TextBlob ONLY for pure short-term supply shock articles
-        # that have NO long-term bearish structural terms.
-        # If article also contains tariff/recession/trade war → keep VADER's
-        # negative signal since those ARE genuinely bearish long-term.
-        lower_st = df["score_text"].str.lower().fillna("")
+        boost_text   = df["score_text"].apply(_strip_company_words)
+        df["boost"]  = finance_boost_series(boost_text, asset_type=asset_type)
 
-        has_st_shock = (
-            lower_st.str.contains(
-                "|".join(_COMMODITY_ST_POS), regex=True, na=False
-            )
-        )
-        has_lt_bearish = (
-            lower_st.str.contains(
-                "|".join(_COMMODITY_LT_NEG), regex=True, na=False
-            )
-        )
-        # For supply-shock commodity articles: reduce VADER/TextBlob to 20% weight.
-        # VADER is biased — "war","conflict","disruption" are hardcoded deeply
-        # negative in its lexicon even when they signal price rises for commodity holders.
-        # We don't zero it (preserves some genuine signal) but reduce its influence
-        # so our commodity-aware boost can drive the final score.
-        # No impact on non-commodity assets or non-supply-shock articles.
-        df["vader_score"]    = df["vader_score"].where(~has_st_shock, df["vader_score"] * 0.20)
-        df["textblob_score"] = df["textblob_score"].where(~has_st_shock, df["textblob_score"] * 0.20)
+        if asset_type == "commodity":
+            lower_st    = df["score_text"].str.lower().fillna("")
+            has_st_shock = lower_st.str.contains("|".join(_COMMODITY_ST_POS), regex=True, na=False)
+            df["vader_score"]    = df["vader_score"].where(~has_st_shock, df["vader_score"] * 0.20)
+            df["textblob_score"] = df["textblob_score"].where(~has_st_shock, df["textblob_score"] * 0.20)
 
-    # ── Mixed-signal correction ──────────────────────────────────────────────
-    # If title contains a crash verb (tanks/falls/sinks/settles lower etc.)
-    # AND a magnitude indicator (pts/points/%), VADER's positive score is
-    # halved before adding boost. Prevents "defence stocks rally" in a crash
-    # headline from flipping the overall score to Positive.
-    _CRASH_V = {"tanks","tanked","crashes","crashed","plunges","plunged",
-                "plummets","plummeted","sinks","sank","slumps","slumped",
-                "tumbles","tumbled","falls","fell","drops","dropped",
-                "settles lower","closes lower","ends lower","sheds","skids",
-                "bleeds","bled","collapses","collapsed","nosedives","nosedived"}
-    _MAG     = {"pts","points","%","percent"}
-
-    title_lower = df["title"].str.lower().fillna("")
-    has_cv  = pd.Series(False, index=df.index)
-    for v in _CRASH_V:
-        has_cv |= title_lower.str.contains(r'' + v.replace(" ", r'\s+') + r'',
-                                            regex=True, na=False)
-    has_mag = pd.Series(False, index=df.index)
-    for m in _MAG:
-        has_mag |= title_lower.str.contains(m, regex=False, na=False)
-
-    is_crash_headline = has_cv & has_mag
-
-    # Halve VADER/TextBlob positive scores on crash headlines
-    df["vader_score"] = df["vader_score"].where(
-        ~is_crash_headline | (df["vader_score"] <= 0),
-        df["vader_score"] * 0.5
-    )
-    df["textblob_score"] = df["textblob_score"].where(
-        ~is_crash_headline | (df["textblob_score"] <= 0),
-        df["textblob_score"] * 0.5
-    )
-
-    df["vader_score"]    = (df["vader_score"]    + df["boost"]).clip(-1.0, 1.0).round(4)
-    df["textblob_score"] = (df["textblob_score"] + df["boost"]).clip(-1.0, 1.0).round(4)
-    df["combined_score"] = ((df["vader_score"] + df["textblob_score"]) / 2).round(4)
-
-    # Scoring: VADER + TextBlob + finance keyword boost
-    df["compound"] = df["combined_score"]
-    df["scorer"]   = "VADER + TextBlob"
+        df["vader_score"]    = (df["vader_score"]    + df["boost"]).clip(-1.0, 1.0).round(4)
+        df["textblob_score"] = (df["textblob_score"] + df["boost"]).clip(-1.0, 1.0).round(4)
+        df["combined_score"] = ((df["vader_score"] + df["textblob_score"]) / 2).round(4)
+        df["compound"]       = df["combined_score"]
+        df["scorer"]         = "VADER + TextBlob"
 
     # ── Method D: recency weighting ──────────────────────────────────────────
     # Weights are used ONLY in the KPI average — individual article scores
@@ -2404,9 +2420,11 @@ if not news_df.empty:
 
 # ── News Feed ─────────────────────────────────────────────────────────────────
 news_keyword = get_news_keyword(primary_name)
-scorer_label = "VADER + TextBlob"
-scorer_color = "#a78bfa"
-scorer_badge = f"<span style='font-size:0.72rem;background:#1a2035;border:1px solid {scorer_color};color:{scorer_color};padding:2px 8px;border-radius:20px;margin-left:8px'>{scorer_label}</span>"
+# Show which scorer was actually used — Groq or VADER fallback
+_scorer_used  = news_df["scorer"].iloc[0] if not news_df.empty and "scorer" in news_df.columns else "VADER + TextBlob"
+scorer_label  = _scorer_used
+scorer_color  = "#22d3ee" if "Groq" in _scorer_used else "#a78bfa"
+scorer_badge  = f"<span style='font-size:0.72rem;background:#1a2035;border:1px solid {scorer_color};color:{scorer_color};padding:2px 8px;border-radius:20px;margin-left:8px'>{scorer_label}</span>"
 st.markdown(f"### 🗞️ Latest News &nbsp;<span style='font-size:0.8rem;color:#5c7cfa'>searching: '{news_keyword}'</span>{scorer_badge}",
             unsafe_allow_html=True)
 
