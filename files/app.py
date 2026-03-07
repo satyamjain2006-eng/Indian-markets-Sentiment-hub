@@ -684,21 +684,11 @@ def _score_via_groq(titles: list[str], asset_type: str) -> list[dict] | None:
 
 def _groq_score_batch(titles: list[str], asset_type: str = "stock") -> list[dict] | None:
     """LLM scorer — Groq (Llama 3) primary, None triggers VADER+TextBlob fallback.
-    Batches large title lists into chunks of 25 to avoid token limits."""
+    Caps at 20 titles to stay well within Groq free tier rate limits."""
     if not titles:
         return None
-    CHUNK = 25
-    if len(titles) <= CHUNK:
-        return _score_via_groq(titles, asset_type)
-    # Multiple chunks — merge results
-    all_results = []
-    for i in range(0, len(titles), CHUNK):
-        chunk = titles[i:i+CHUNK]
-        result = _score_via_groq(chunk, asset_type)
-        if result is None:
-            return None  # Any chunk failure → fall back to VADER entirely
-        all_results.extend(result)
-    return all_results
+    # Cap at 20 — enough for accurate sentiment, avoids rate limit for all asset types
+    return _score_via_groq(titles[:20], asset_type)
 
 # ── Method A: Finance-specific keyword booster ────────────────────────────────
 # ══════════════════════════════════════════════════════════════════════════════
