@@ -1497,41 +1497,54 @@ def _yf_download_safe(ticker: str, **kwargs) -> pd.DataFrame:
 @st.cache_data(ttl=60, max_entries=20, show_spinner=False)
 def fetch_price(ticker: str, period: str) -> tuple:
     def _clean(df: pd.DataFrame, is_intraday: bool) -> pd.DataFrame:
-        # Step 1: flatten MultiIndex columns BEFORE reset_index
-        # yfinance MultiIndex: index=Date, columns=MultiIndex([Close,High,...],[ticker,...])
-        # get_level_values(0) gives ["Close","High",...] — no "Date" yet
-        # reset_index() then moves Date from index → first column safely
+        if df.empty:
+            return df
+
+        # Flatten MultiIndex columns — yfinance returns MultiIndex for single ticker too
+        # e.g. MultiIndex([("Close","^NSEI"),("High","^NSEI")...])
+        # After get_level_values(0): ["Close","High",...] — Date is still in the index
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
 
-        # Step 2: reset_index — but if "Date" already in columns, avoid duplicate
-        if df.index.name in ("Date", "Datetime") and df.index.name not in df.columns:
+        # Move Date/Datetime from index into columns
+        # Guard: only reset_index if index name is Date/Datetime to avoid adding extra col
+        idx_name = df.index.name or ""
+        if idx_name in ("Date", "Datetime"):
             df = df.reset_index()
-        elif df.index.name in ("Date", "Datetime"):
-            # Date already a column — just drop the index
-            df = df.reset_index(drop=True)
         else:
-            df = df.reset_index()
+            df = df.reset_index(drop=True)
 
-        # Step 3: rename Datetime → Date
-        if "Datetime" in df.columns:
+        # Rename Datetime → Date
+        if "Datetime" in df.columns and "Date" not in df.columns:
             df = df.rename(columns={"Datetime": "Date"})
+        elif "Datetime" in df.columns:
+            df = df.drop(columns=["Datetime"])
 
-        # Step 4: dedupe columns (safety net for any remaining duplicates)
-        df = df.loc[:, ~df.columns.duplicated()]
+        if "Date" not in df.columns or df.empty:
+            return pd.DataFrame()
 
-        # Step 5: strip tz from Date
-        if "Date" in df.columns and not df.empty:
-            if is_intraday:
-                dates = pd.to_datetime(df["Date"])
-                if hasattr(dates.dt, "tz") and dates.dt.tz is not None:
-                    df["Date"] = dates.dt.tz_convert("Asia/Kolkata").dt.tz_localize(None)
-                else:
-                    df["Date"] = dates + pd.Timedelta(hours=5, minutes=30)
+        # Ensure Close column exists (after MultiIndex flatten may have dupes — take first)
+        seen = set()
+        keep_cols = []
+        for c in df.columns:
+            if c not in seen:
+                keep_cols.append(c)
+                seen.add(c)
+        df = df[keep_cols]
+
+        # Normalise Date — strip tz without converting timezone
+        if is_intraday:
+            dates = pd.to_datetime(df["Date"])
+            if hasattr(dates.dt, "tz") and dates.dt.tz is not None:
+                df["Date"] = dates.dt.tz_convert("Asia/Kolkata").dt.tz_localize(None)
             else:
-                # Keep calendar date as recorded by each exchange — no UTC conversion
-                df["Date"] = df["Date"].astype(str).str[:10]
-                df["Date"] = pd.to_datetime(df["Date"], format="%Y-%m-%d", errors="coerce")
+                df["Date"] = dates + pd.Timedelta(hours=5, minutes=30)
+        else:
+            # Convert to string first — handles tz-aware, tz-naive, weekly, daily uniformly
+            # str[:10] = "YYYY-MM-DD" — the calendar date each exchange recorded
+            df["Date"] = pd.to_datetime(
+                df["Date"].astype(str).str[:10], format="%Y-%m-%d", errors="coerce"
+            )
 
         df = df.dropna(subset=["Date"])
         df = df.drop_duplicates(subset=["Date"]).sort_values("Date").reset_index(drop=True)
