@@ -580,9 +580,11 @@ def _groq_score_batch(titles: list[str], asset_type: str = "stock", api_key: str
     Returns list of {score: float, label: str} or None if Groq unavailable.
     Score is in [-1, +1]. Falls back to None so caller can use VADER.
     api_key must be passed explicitly — st.secrets not accessible in cached functions."""
+    print(f"[Groq] called: n={len(titles)}, asset={asset_type}, key={'SET' if api_key else 'EMPTY'}")
     try:
         import requests, json
         if not api_key:
+            print("[Groq] RETURNING NONE — api_key is empty")
             return None
 
         asset_context = {
