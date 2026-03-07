@@ -1132,7 +1132,7 @@ def badge_class(label):
     return {"Positive":"b-pos","Negative":"b-neg","Neutral":"b-neu"}.get(label,"")
 
 
-@st.cache_data(ttl=302, max_entries=10, show_spinner=False)
+@st.cache_data(ttl=303, max_entries=10, show_spinner=False)
 def fetch_news(company_name: str) -> pd.DataFrame:
     keyword  = get_news_keyword(company_name)
     symbol   = st.session_state.get("primary_symbol", "")
@@ -1460,7 +1460,7 @@ def fetch_news(company_name: str) -> pd.DataFrame:
     # Keep only columns the UI actually uses
     keep = ["source","title","link","published","published_dt","published_fmt",
             "label","compound","vader_score","textblob_score",
-            "recency_weight","momentum_signal","keyword"]
+            "recency_weight","momentum_signal","keyword","scorer"]
     df = df[[c for c in keep if c in df.columns]]
     return df
 
@@ -2435,11 +2435,9 @@ scorer_label  = _scorer_used
 scorer_color  = "#22d3ee" if "Groq" in _scorer_used else "#a78bfa"
 scorer_badge  = f"<span style='font-size:0.72rem;background:#1a2035;border:1px solid {scorer_color};color:{scorer_color};padding:2px 8px;border-radius:20px;margin-left:8px'>{scorer_label}</span>"
 
-# ── Groq diagnostics (always visible so you can debug key issues) ─────────────
+# ── Groq key check ───────────────────────────────────────────────────────────
 _groq_key = st.secrets.get("GROQ_API_KEY", "")
-if _groq_key:
-    st.caption(f"🔑 GROQ_API_KEY found — length {len(_groq_key)}, starts with: {_groq_key[:8]}...")
-else:
+if not _groq_key:
     st.warning("⚠️ GROQ_API_KEY not found in st.secrets — using VADER fallback. "
                "Add it in Streamlit Cloud → App Settings → Secrets.")
 st.markdown(f"### 🗞️ Latest News &nbsp;<span style='font-size:0.8rem;color:#5c7cfa'>searching: '{news_keyword}'</span>{scorer_badge}",
