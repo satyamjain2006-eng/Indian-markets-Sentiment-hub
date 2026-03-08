@@ -2322,14 +2322,15 @@ else:
 # ── Cross Asset Comparison Chart ──────────────────────────────────────────────
 if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
     with st.spinner(f"Loading {ca_name_a} vs {ca_name_b}…"):
-        # Fetch sequentially — NOT in parallel threads.
-        # @st.cache_data is not thread-safe: two simultaneous calls with different
-        # tickers can race and both return the same cached result, causing
-        # identical series and spurious R=1.00 correlation.
+        import time as _ca_time
         ca_df_a, _ = fetch_price(ca_ticker_a, period)
+        _ca_time.sleep(1.5)  # avoid yfinance rate limit between two fetches
         ca_df_b, _ = fetch_price(ca_ticker_b, period)
 
-    if not ca_df_a.empty and not ca_df_b.empty:
+    if ca_df_a.empty or ca_df_b.empty:
+        missing = ca_name_a if ca_df_a.empty else ca_name_b
+        st.warning(f"⚠️ Could not load price data for **{missing}** — yfinance rate limit hit. Wait 30 seconds and try again.")
+    elif not ca_df_a.empty and not ca_df_b.empty:
         st.markdown(f"### 🔀 {ca_name_a} vs {ca_name_b}")
 
         fig_ca = go.Figure()
@@ -2633,79 +2634,68 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
 
                 import math
 
-                # Correlation strategy by period:
-                # 1mo  → price levels (too few points for returns to be meaningful)
-                # 3mo+ → daily returns (avoids spurious +1.00 from shared bull trends)
-                # Chart always uses normalised price levels (visual consistency)
-                # Detect cross-timezone index pair
-                # Indian indices close at 3:30pm IST — before US/EU/Asian others open
-                # For Indian vs non-Indian index pairs: same-day returns are meaningless
-                # because sessions don't overlap. Use 1-day lag instead.
-                _INDIAN_INDICES = {
-                    "Nifty 50", "Sensex", "Nifty Bank", "Nifty Midcap 50"
-                }
-                # All non-Indian indices available in the comparison tool
-                _GLOBAL_INDICES = {
-                    "S&P 500", "Nasdaq 100", "Dow Jones", "Russell 2000",
-                    "VIX (Fear Index)", "Nikkei 225", "Hang Seng",
-                    "Shanghai Comp.", "KOSPI (Korea)", "ASX 200",
-                    "Straits Times", "FTSE 100", "DAX (Germany)",
-                    "CAC 40 (France)", "Euro Stoxx 50", "Tadawul (Saudi)",
-                    "MSCI World", "MSCI EM"
-                }
-                _ALL_INDICES = _INDIAN_INDICES | _GLOBAL_INDICES
-                _a_is_indian  = ca_name_a in _INDIAN_INDICES
-                _b_is_indian  = ca_name_b in _INDIAN_INDICES
-                _a_is_index   = ca_name_a in _ALL_INDICES
-                _b_is_index   = ca_name_b in _ALL_INDICES
-                # Cross-tz only applies when BOTH assets are indices AND
-                # one is Indian (IST) and the other is non-Indian
-                _is_cross_tz_index = (
-                    _a_is_index and _b_is_index and
-                    ((_a_is_indian and not _b_is_indian) or
-                     (not _a_is_indian and _b_is_indian))
-                )
+                # Safety check: if both series are identical (e.g. yfinance rate limit
+                # caused one fetch to fail and return wrong cached data), show error
+                # instead of computing a meaningless R=1.00
+                _merged_check = pd.concat([price_a, price_b], axis=1).dropna()
+                if len(_merged_check) > 0 and _merged_check["A"].equals(_merged_check["B"]):
+                    st.markdown(
+                        "<div style='background:#2a0010;border:1px solid #ff4b6e;"
+                        "border-radius:8px;padding:12px;font-size:0.82rem;color:#ff4b6e;'>"
+                        "⚠️ <b>Data error:</b> Both assets returned identical price data — "
+                        "likely a yfinance rate limit on one ticker. "
+                        "Wait 30 seconds and refresh the page.</div>",
+                        unsafe_allow_html=True
+                    )
+                else:
+                    # Correlation strategy — always daily returns, never price levels
+                    _INDIAN_INDICES = {"Nifty 50", "Sensex", "Nifty Bank", "Nifty Midcap 50"}
+                    _GLOBAL_INDICES = {
+                        "S&P 500", "Nasdaq 100", "Dow Jones", "Russell 2000",
+                        "VIX (Fear Index)", "Nikkei 225", "Hang Seng",
+                        "Shanghai Comp.", "KOSPI (Korea)", "ASX 200",
+                        "Straits Times", "FTSE 100", "DAX (Germany)",
+                        "CAC 40 (France)", "Euro Stoxx 50", "Tadawul (Saudi)",
+                        "MSCI World", "MSCI EM"
+                    }
+                    _ALL_INDICES = _INDIAN_INDICES | _GLOBAL_INDICES
+                    _a_is_indian  = ca_name_a in _INDIAN_INDICES
+                    _b_is_indian  = ca_name_b in _INDIAN_INDICES
+                    _a_is_index   = ca_name_a in _ALL_INDICES
+                    _b_is_index   = ca_name_b in _ALL_INDICES
+                    _is_cross_tz_index = (
+                        _a_is_index and _b_is_index and
+                        ((_a_is_indian and not _b_is_indian) or
+                         (not _a_is_indian and _b_is_indian))
+                    )
 
-                # Always use daily returns for all periods — price levels produce
-                # spurious correlations (e.g. VIX vs Gold both trending up → R=1.00).
-                # Returns measure genuine co-movement, not shared trends.
-                ret_a = price_a.pct_change().dropna()
-                ret_b = price_b.pct_change().dropna()
-                merged_ret = pd.concat([ret_a, ret_b], axis=1, sort=True).dropna()
-                min_pts = 5 if period == "1mo" else 10
-                corr = merged_ret["A"].corr(merged_ret["B"]) if len(merged_ret) >= min_pts else float("nan")
-                r2   = corr ** 2 if not math.isnan(corr) else 0.0
+                    ret_a = price_a.pct_change().dropna()
+                    ret_b = price_b.pct_change().dropna()
+                    merged_ret = pd.concat([ret_a, ret_b], axis=1, sort=True).dropna()
+                    min_pts = 5 if period == "1mo" else 10
+                    corr = merged_ret["A"].corr(merged_ret["B"]) if len(merged_ret) >= min_pts else float("nan")
+                    r2   = corr ** 2 if not math.isnan(corr) else 0.0
 
-                # Cross-timezone index pair: also compute 1-day lagged correlation
-                # S&P 500/US/EU/Asia closes AFTER Indian market — Nifty reacts next morning
-                lagged_corr = lagged_r2 = None
-                if _is_cross_tz_index and len(merged_ret) >= 10:
-                    if _a_is_indian:
-                        lagged_merged = pd.concat(
-                            [ret_a.rename("Indian"), ret_b.shift(1).rename("Global")],
-                            axis=1, sort=True
-                        ).dropna()
-                    else:
-                        lagged_merged = pd.concat(
-                            [ret_b.rename("Indian"), ret_a.shift(1).rename("Global")],
-                            axis=1, sort=True
-                        ).dropna()
-                    if len(lagged_merged) >= 10:
-                        lagged_corr = lagged_merged["Indian"].corr(lagged_merged["Global"])
-                        lagged_r2   = lagged_corr ** 2
+                    lagged_corr = lagged_r2 = None
+                    if _is_cross_tz_index and len(merged_ret) >= 10:
+                        if _a_is_indian:
+                            lagged_merged = pd.concat(
+                                [ret_a.rename("Indian"), ret_b.shift(1).rename("Global")],
+                                axis=1, sort=True
+                            ).dropna()
+                        else:
+                            lagged_merged = pd.concat(
+                                [ret_b.rename("Indian"), ret_a.shift(1).rename("Global")],
+                                axis=1, sort=True
+                            ).dropna()
+                        if len(lagged_merged) >= 10:
+                            lagged_corr = lagged_merged["Indian"].corr(lagged_merged["Global"])
+                            lagged_r2   = lagged_corr ** 2
 
-                if not math.isnan(corr):
-                    _render_stats(corr, r2, len(merged_ret), period,
-                                  lagged_corr=lagged_corr, lagged_r2=lagged_r2,
-                                  is_cross_tz=_is_cross_tz_index)
-                    # Debug: show raw values to diagnose +1.00 issue
-                    with st.expander("🔬 Correlation Debug", expanded=False):
-                        st.write(f"n points: {len(merged_ret)}")
-                        st.write(f"raw corr: {corr:.6f}, r2: {r2:.6f}")
-                        st.write(f"ret_a stats: mean={ret_a.mean():.4f}, std={ret_a.std():.4f}, min={ret_a.min():.4f}, max={ret_a.max():.4f}")
-                        st.write(f"ret_b stats: mean={ret_b.mean():.4f}, std={ret_b.std():.4f}, min={ret_b.min():.4f}, max={ret_b.max():.4f}")
-                        st.write("merged_ret tail:")
-                        st.dataframe(merged_ret.tail(10))
+                    if not math.isnan(corr):
+                        _render_stats(corr, r2, len(merged_ret), period,
+                                      lagged_corr=lagged_corr, lagged_r2=lagged_r2,
+                                      is_cross_tz=_is_cross_tz_index)
 
         except Exception as _corr_err:
             st.markdown(
@@ -2780,32 +2770,6 @@ if not _groq_key:
                "Add it in Streamlit Cloud → App Settings → Secrets.")
 elif _GROQ_LAST_ERROR:
     st.warning(f"⚠️ Groq failed (using VADER fallback): `{_GROQ_LAST_ERROR}`")
-
-# ── Groq debug panel — always visible so you can diagnose without logs ────────
-with st.expander("🔧 Groq Debug", expanded=False):
-    key_val = st.secrets.get("GROQ_API_KEY", "")
-    if key_val:
-        st.markdown(f"**Key in secrets:** `{key_val[:8]}…` (length: {len(key_val)})")
-    else:
-        st.markdown("**Key in secrets:** ❌ NOT SET")
-    st.markdown(f"**Module-level `_GROQ_API_KEY`:** `{'SET (' + _GROQ_API_KEY[:8] + '…)' if _GROQ_API_KEY else 'EMPTY'}`")
-    # Show cache status
-    _ck = f"_news_cache_{primary_name}"
-    _tk = f"_news_ts_{primary_name}"
-    import time as _dbg_time
-    if _ck in st.session_state and _tk in st.session_state:
-        age = int(_dbg_time.time() - st.session_state[_tk])
-        st.markdown(f"**News cache:** ✅ Hit — `{primary_name}` cached {age}s ago (TTL 300s)")
-    else:
-        st.markdown(f"**News cache:** ❌ Miss — will call Groq fresh")
-    st.markdown(f"**Last Groq call result:**")
-    dbg = st.session_state.get("_groq_debug", "No Groq call made yet this session")
-    color = "#00d4aa" if "✅" in dbg else "#ff4b6e"
-    st.markdown(f"<div style='background:#0e1320;border:1px solid {color};border-radius:8px;"
-                f"padding:10px;font-family:monospace;font-size:0.82rem;color:{color}'>{dbg}</div>",
-                unsafe_allow_html=True)
-    if _GROQ_LAST_ERROR:
-        st.markdown(f"**Last error:** `{_GROQ_LAST_ERROR}`")
 st.markdown(f"### 🗞️ Latest News &nbsp;<span style='font-size:0.8rem;color:#5c7cfa'>searching: '{news_keyword}'</span>{scorer_badge}",
             unsafe_allow_html=True)
 
