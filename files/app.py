@@ -2322,11 +2322,12 @@ else:
 # ── Cross Asset Comparison Chart ──────────────────────────────────────────────
 if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
     with st.spinner(f"Loading {ca_name_a} vs {ca_name_b}…"):
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            fut_a = executor.submit(fetch_price, ca_ticker_a, period)
-            fut_b = executor.submit(fetch_price, ca_ticker_b, period)
-            ca_df_a, _ = fut_a.result()
-            ca_df_b, _ = fut_b.result()
+        # Fetch sequentially — NOT in parallel threads.
+        # @st.cache_data is not thread-safe: two simultaneous calls with different
+        # tickers can race and both return the same cached result, causing
+        # identical series and spurious R=1.00 correlation.
+        ca_df_a, _ = fetch_price(ca_ticker_a, period)
+        ca_df_b, _ = fetch_price(ca_ticker_b, period)
 
     if not ca_df_a.empty and not ca_df_b.empty:
         st.markdown(f"### 🔀 {ca_name_a} vs {ca_name_b}")
@@ -2607,12 +2608,10 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
             else:
                 def _to_clean_daily(df, col):
                     """Returns a clean daily price series indexed by tz-naive date.
-                    Strips tz label WITHOUT converting (utc=True shifts IST dates back
-                    by 5:30h causing date mismatches). We just want the calendar date
-                    each exchange recorded — not a common UTC timestamp."""
-                    d = df[["Date","Close"]].copy()
+                    Uses deep copy to prevent cache object mutation issues where
+                    two assets fetched from @st.cache_data share the same object."""
+                    d = df[["Date","Close"]].copy(deep=True)
                     dates = pd.to_datetime(d["Date"])
-                    # Strip tz label without converting timezone
                     try:
                         if dates.dt.tz is not None:
                             dates = dates.dt.tz_convert(None)
@@ -2622,11 +2621,12 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
                         except Exception:
                             dates = pd.to_datetime(d["Date"].astype(str).str[:10])
                     dates = dates.dt.normalize()
+                    d = d.copy(deep=True)
                     d["Date"] = dates
                     d = d.sort_values("Date").drop_duplicates(subset=["Date"])
-                    d = d.set_index("Date")["Close"].dropna().astype(float)
-                    d.name = col
-                    return d
+                    result = d.set_index("Date")["Close"].dropna().astype(float).copy()
+                    result.name = col
+                    return result
 
                 price_a = _to_clean_daily(ca_df_a, "A")
                 price_b = _to_clean_daily(ca_df_b, "B")
