@@ -2666,49 +2666,38 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
                      (not _a_is_indian and _b_is_indian))
                 )
 
-                if period == "1mo":
-                    merged_price = pd.concat([price_a, price_b], axis=1, sort=True).dropna()
-                    corr = merged_price["A"].corr(merged_price["B"]) if len(merged_price) >= 5 else float("nan")
-                    r2   = corr ** 2 if not math.isnan(corr) else 0.0
-                    if not math.isnan(corr):
-                        _render_stats(corr, r2, len(merged_price), period)
-                else:
-                    # Daily returns — not fooled by shared long-term trends
-                    ret_a = price_a.pct_change().dropna()
-                    ret_b = price_b.pct_change().dropna()
-                    merged_ret = pd.concat([ret_a, ret_b], axis=1, sort=True).dropna()
-                    corr = merged_ret["A"].corr(merged_ret["B"]) if len(merged_ret) >= 10 else float("nan")
-                    r2   = corr ** 2 if not math.isnan(corr) else 0.0
+                # Always use daily returns for all periods — price levels produce
+                # spurious correlations (e.g. VIX vs Gold both trending up → R=1.00).
+                # Returns measure genuine co-movement, not shared trends.
+                ret_a = price_a.pct_change().dropna()
+                ret_b = price_b.pct_change().dropna()
+                merged_ret = pd.concat([ret_a, ret_b], axis=1, sort=True).dropna()
+                min_pts = 5 if period == "1mo" else 10
+                corr = merged_ret["A"].corr(merged_ret["B"]) if len(merged_ret) >= min_pts else float("nan")
+                r2   = corr ** 2 if not math.isnan(corr) else 0.0
 
-                    # Cross-timezone index pair: also compute 1-day lagged correlation
-                    # S&P 500/US/EU/Asia closes AFTER Indian market — Nifty reacts next morning
-                    # Lag: if A is non-Indian (e.g. S&P), shift A back by 1 day to align with Nifty
-                    lagged_corr = lagged_r2 = None
-                    if _is_cross_tz_index and len(merged_ret) >= 10:
-                        # Non-Indian (Dow/S&P etc.) closes AFTER Indian market
-                        # → Non-Indian yesterday predicts Indian today
-                        if _a_is_indian:
-                            # A=Indian (Nifty), B=non-Indian (Dow)
-                            # Dow yesterday (ret_b shifted +1) vs Nifty today (ret_a)
-                            lagged_merged = pd.concat(
-                                [ret_a.rename("Indian"), ret_b.shift(1).rename("Global")],
-                                axis=1, sort=True
-                            ).dropna()
-                        else:
-                            # A=non-Indian (Dow), B=Indian (Nifty)
-                            # Dow yesterday (ret_a shifted +1) vs Nifty today (ret_b)
-                            lagged_merged = pd.concat(
-                                [ret_b.rename("Indian"), ret_a.shift(1).rename("Global")],
-                                axis=1, sort=True
-                            ).dropna()
-                        if len(lagged_merged) >= 10:
-                            lagged_corr = lagged_merged["Indian"].corr(lagged_merged["Global"])
-                            lagged_r2   = lagged_corr ** 2
+                # Cross-timezone index pair: also compute 1-day lagged correlation
+                # S&P 500/US/EU/Asia closes AFTER Indian market — Nifty reacts next morning
+                lagged_corr = lagged_r2 = None
+                if _is_cross_tz_index and len(merged_ret) >= 10:
+                    if _a_is_indian:
+                        lagged_merged = pd.concat(
+                            [ret_a.rename("Indian"), ret_b.shift(1).rename("Global")],
+                            axis=1, sort=True
+                        ).dropna()
+                    else:
+                        lagged_merged = pd.concat(
+                            [ret_b.rename("Indian"), ret_a.shift(1).rename("Global")],
+                            axis=1, sort=True
+                        ).dropna()
+                    if len(lagged_merged) >= 10:
+                        lagged_corr = lagged_merged["Indian"].corr(lagged_merged["Global"])
+                        lagged_r2   = lagged_corr ** 2
 
-                    if not math.isnan(corr):
-                        _render_stats(corr, r2, len(merged_ret), period,
-                                      lagged_corr=lagged_corr, lagged_r2=lagged_r2,
-                                      is_cross_tz=_is_cross_tz_index)
+                if not math.isnan(corr):
+                    _render_stats(corr, r2, len(merged_ret), period,
+                                  lagged_corr=lagged_corr, lagged_r2=lagged_r2,
+                                  is_cross_tz=_is_cross_tz_index)
 
         except Exception as _corr_err:
             st.markdown(
