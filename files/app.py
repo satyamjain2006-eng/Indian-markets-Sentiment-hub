@@ -2698,6 +2698,14 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
                     _render_stats(corr, r2, len(merged_ret), period,
                                   lagged_corr=lagged_corr, lagged_r2=lagged_r2,
                                   is_cross_tz=_is_cross_tz_index)
+                    # Debug: show raw values to diagnose +1.00 issue
+                    with st.expander("🔬 Correlation Debug", expanded=False):
+                        st.write(f"n points: {len(merged_ret)}")
+                        st.write(f"raw corr: {corr:.6f}, r2: {r2:.6f}")
+                        st.write(f"ret_a stats: mean={ret_a.mean():.4f}, std={ret_a.std():.4f}, min={ret_a.min():.4f}, max={ret_a.max():.4f}")
+                        st.write(f"ret_b stats: mean={ret_b.mean():.4f}, std={ret_b.std():.4f}, min={ret_b.min():.4f}, max={ret_b.max():.4f}")
+                        st.write("merged_ret tail:")
+                        st.dataframe(merged_ret.tail(10))
 
         except Exception as _corr_err:
             st.markdown(
