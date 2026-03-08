@@ -660,18 +660,19 @@ def _score_via_groq(titles: list[str], asset_type: str) -> list[dict] | None:
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}",
                      "Content-Type": "application/json"},
-            json={"model": "llama-3.3-70b-versatile",
+            json={"model": "llama-3.1-8b-instant",
                   "messages": [{"role": "user", "content": prompt}],
                   "temperature": 0.0,
-                  "max_tokens": 1200},
+                  "max_tokens": 800},
             timeout=20,
         )
     try:
         import time as _time
         resp = _call_groq()
-        # Retry once on 429 after a short wait
+        # Retry once on 429 — respect Retry-After header, cap at 3s max
         if resp.status_code == 429:
-            _time.sleep(3)
+            retry_after = min(float(resp.headers.get("Retry-After", "2")), 3)
+            _time.sleep(retry_after)
             resp = _call_groq()
         if resp.status_code == 429:
             _dbg = f"❌ Rate limited (429) after retry — key: {key_preview}"
@@ -698,16 +699,11 @@ def _score_via_groq(titles: list[str], asset_type: str) -> list[dict] | None:
         return None
 
 def _groq_score_batch(titles: list[str], asset_type: str = "stock") -> list[dict] | None:
-    """LLM scorer — Groq (Llama 3) primary, None triggers VADER+TextBlob fallback."""
+    """LLM scorer — Groq (Llama 3) primary, None triggers VADER+TextBlob fallback.
+    No blocking sleeps — session_state news cache prevents redundant calls.
+    """
     if not titles:
         return None
-    # Enforce minimum 5s gap between Groq calls to avoid rate limiting
-    import time as _time
-    last_call = st.session_state.get("_groq_last_call_ts", 0)
-    gap = _time.time() - last_call
-    if gap < 5:
-        _time.sleep(5 - gap)
-    st.session_state["_groq_last_call_ts"] = _time.time()
     return _score_via_groq(titles, asset_type)
 
 # ── Method A: Finance-specific keyword booster ────────────────────────────────
@@ -1531,20 +1527,21 @@ _NEWS_TTL = 300  # seconds — how long to keep cached news before re-fetching
 
 def get_news(company_name: str, symbol: str = "") -> pd.DataFrame:
     """Manual session_state TTL cache for fetch_news.
-    
+
     WHY: fetch_news cannot use @st.cache_data because Groq must run in the
-    main thread with access to _GROQ_API_KEY (read from st.secrets at startup).
-    @st.cache_data runs in a special context where st.secrets is unreliable,
-    which caused Groq to always fall back to VADER on Streamlit Cloud.
-    
-    This wrapper gives us the same TTL caching behaviour without the cache layer.
+    main thread with full access to _GROQ_API_KEY (read from st.secrets at startup).
+
+    Cache key uses only company_name — symbol varies between reruns for the
+    same asset (e.g. "" vs "NIFTY50") which would cause spurious cache misses
+    and unnecessary Groq calls leading to 429 rate limits.
     """
     import time as _time
-    cache_key = f"_news_cache_{company_name}_{symbol}"
-    ts_key    = f"_news_ts_{company_name}_{symbol}"
+    # Use only company_name in cache key — symbol is not stable across reruns
+    cache_key = f"_news_cache_{company_name}"
+    ts_key    = f"_news_ts_{company_name}"
     now       = _time.time()
 
-    # Return cached result if still fresh
+    # Return cached result if still fresh (300s TTL)
     if (cache_key in st.session_state
             and ts_key in st.session_state
             and now - st.session_state[ts_key] < _NEWS_TTL):
@@ -2778,6 +2775,15 @@ with st.expander("🔧 Groq Debug", expanded=False):
     else:
         st.markdown("**Key in secrets:** ❌ NOT SET")
     st.markdown(f"**Module-level `_GROQ_API_KEY`:** `{'SET (' + _GROQ_API_KEY[:8] + '…)' if _GROQ_API_KEY else 'EMPTY'}`")
+    # Show cache status
+    _ck = f"_news_cache_{primary_name}"
+    _tk = f"_news_ts_{primary_name}"
+    import time as _dbg_time
+    if _ck in st.session_state and _tk in st.session_state:
+        age = int(_dbg_time.time() - st.session_state[_tk])
+        st.markdown(f"**News cache:** ✅ Hit — `{primary_name}` cached {age}s ago (TTL 300s)")
+    else:
+        st.markdown(f"**News cache:** ❌ Miss — will call Groq fresh")
     st.markdown(f"**Last Groq call result:**")
     dbg = st.session_state.get("_groq_debug", "No Groq call made yet this session")
     color = "#00d4aa" if "✅" in dbg else "#ff4b6e"
