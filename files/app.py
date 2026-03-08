@@ -1419,17 +1419,34 @@ def fetch_news(company_name: str, symbol: str = "") -> pd.DataFrame:
     # ── Scoring pipeline ──────────────────────────────────────────────────────
     # Primary: Groq (Llama 3) — understands sentence context
     # Fallback: VADER + TextBlob + keyword boost — if Groq unavailable
+    # NOTE: Groq is capped at 12 titles. If df has more rows, the extra rows
+    # get VADER scores. This is intentional — older/less relevant articles
+    # don't need LLM scoring.
     groq_results = _groq_score_batch(df["title"].tolist(), asset_type=asset_type) if not df.empty else None
 
     if groq_results is not None:
         # ── Groq path ────────────────────────────────────────────────────
-        df["compound"]       = [r["score"] for r in groq_results]
-        df["label"]          = [r["label"] for r in groq_results]
+        n_groq = len(groq_results)  # may be < len(df) if df has >12 rows
+        # Scores for Groq-scored rows
+        groq_scores = [r["score"] for r in groq_results]
+        groq_labels = [r["label"] for r in groq_results]
+        # VADER scores for any remaining rows beyond the Groq cap
+        if n_groq < len(df):
+            extra_texts  = df["score_text"].iloc[n_groq:].tolist()
+            extra_scores = [vader_score(t) for t in extra_texts]
+            extra_labels = [label_from_score(s) for s in extra_scores]
+        else:
+            extra_scores, extra_labels = [], []
+
+        all_scores = groq_scores + extra_scores
+        all_labels = groq_labels + extra_labels
+
+        df["compound"]       = all_scores
+        df["label"]          = all_labels
         df["vader_score"]    = df["compound"]
         df["textblob_score"] = df["compound"]
         df["boost"]          = 0.0
         df["combined_score"] = df["compound"]
-        # Detect which backend was used from the _backend tag on results
         _backend_used = groq_results[0].get("_backend", "Groq (Llama 3)") if groq_results else "Groq (Llama 3)"
         df["scorer"] = _backend_used
     else:
