@@ -1390,21 +1390,35 @@ def fetch_news(company_name: str, symbol: str = "") -> pd.DataFrame:
             )]
             df = india_filtered if len(india_filtered) >= 2 else df.head(5)
     df = df.drop(columns=["relevant"], errors="ignore").reset_index(drop=True)
-    def _parse_date_robust(s):
-        """Parse RSS date strings robustly — handles +0530, GMT, Z, ISO 8601."""
+    # Sources that publish in IST — rss2json strips their +0530 label
+    _IST_SOURCES = {"Economic Times", "MoneyControl", "LiveMint"}
+
+    def _parse_date_robust(s, source=""):
+        """Parse RSS date strings robustly.
+        rss2json.com strips tz labels before returning. We need to know the
+        original source timezone to interpret bare datetime strings correctly:
+        - ET, MoneyControl, LiveMint publish in IST (+0530) → subtract 5:30 to get UTC
+        - Reuters publishes in UTC → treat bare string as UTC directly
+        - Google News always includes explicit tz label → handled normally"""
         if not s or not isinstance(s, str):
             return pd.NaT
         try:
             dt = _dateutil_parser.parse(s, fuzzy=True)
-            # Convert to UTC then strip tz for consistent comparison
             if dt.tzinfo is not None:
+                # Explicit tz — convert to UTC and strip
                 dt = dt.utctimetuple()
                 return pd.Timestamp(*dt[:6])
-            return pd.Timestamp(dt)
+            else:
+                # No tz label — rss2json stripped it
+                # IST sources: subtract 5:30 to store as UTC
+                if source in _IST_SOURCES:
+                    return pd.Timestamp(dt) - pd.Timedelta(hours=5, minutes=30)
+                # UTC sources (Reuters) or unknown: treat as UTC directly
+                return pd.Timestamp(dt)
         except Exception:
             return pd.NaT
 
-    df["published_dt"] = df["published"].apply(_parse_date_robust)
+    df["published_dt"] = df.apply(lambda r: _parse_date_robust(r["published"], r.get("source", "")), axis=1)
     df = df.sort_values("published_dt", ascending=False).reset_index(drop=True)
 
     # ── Entity disambiguation — filter cross-conglomerate noise ──────────────
