@@ -1500,9 +1500,9 @@ def fetch_news(company_name: str, symbol: str = "") -> pd.DataFrame:
     ).astype(float).fillna(0.08)
 
     # ── Method E: momentum detection ─────────────────────────────────────────
-    df["_date"] = df["published_dt"].dt.date
-    today     = pd.Timestamp.now().date()
-    yesterday = (pd.Timestamp.now() - pd.Timedelta(days=1)).date()
+    df["_date"] = (df["published_dt"] + _ist_offset).dt.date
+    today     = (pd.Timestamp.utcnow() + _ist_offset).date()
+    yesterday = (pd.Timestamp.utcnow() + _ist_offset - pd.Timedelta(days=1)).date()
     today_scores = df[df["_date"] == today]["compound"]
     yest_scores  = df[df["_date"] == yesterday]["compound"]
 
@@ -1519,7 +1519,9 @@ def fetch_news(company_name: str, symbol: str = "") -> pd.DataFrame:
     # (e.g. generic explainer with −0.82) from dominating the average
     df["compound"] = df["compound"].clip(-0.70, 0.70)
     df["label"] = df["compound"].apply(label_from_score)
-    df["published_fmt"] = df["published_dt"].dt.strftime("%-d %B %Y, %I:%M %p").fillna(df["published"])
+    # published_dt is stored as UTC — convert to IST (UTC+5:30) before display
+    _ist_offset = pd.Timedelta(hours=5, minutes=30)
+    df["published_fmt"] = (df["published_dt"] + _ist_offset).dt.strftime("%-d %B %Y, %I:%M %p IST").fillna(df["published"])
     # ── Drop all intermediate columns before caching ─────────────────────────
     # score_text: title+800char desc — large, only needed during scoring
     # description: 800 chars raw text — large, not shown in UI
@@ -1783,7 +1785,7 @@ def build_price_chart(df: pd.DataFrame, ticker: str, period: str = "1mo") -> go.
 
 def build_sentiment_trend(df: pd.DataFrame) -> go.Figure:
     df = df.copy()
-    df["date"] = pd.to_datetime(df["published_dt"].dt.date)
+    df["date"] = pd.to_datetime((df["published_dt"] + pd.Timedelta(hours=5, minutes=30)).dt.date)
 
     def top5_titles(titles):
         items = list(titles)[:5]
