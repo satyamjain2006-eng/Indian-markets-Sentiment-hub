@@ -1500,6 +1500,7 @@ def fetch_news(company_name: str, symbol: str = "") -> pd.DataFrame:
     ).astype(float).fillna(0.08)
 
     # ── Method E: momentum detection ─────────────────────────────────────────
+    _ist_offset = pd.Timedelta(hours=5, minutes=30)
     df["_date"] = (df["published_dt"] + _ist_offset).dt.date
     today     = (pd.Timestamp.utcnow() + _ist_offset).date()
     yesterday = (pd.Timestamp.utcnow() + _ist_offset - pd.Timedelta(days=1)).date()
@@ -1520,7 +1521,6 @@ def fetch_news(company_name: str, symbol: str = "") -> pd.DataFrame:
     df["compound"] = df["compound"].clip(-0.70, 0.70)
     df["label"] = df["compound"].apply(label_from_score)
     # published_dt is stored as UTC — convert to IST (UTC+5:30) before display
-    _ist_offset = pd.Timedelta(hours=5, minutes=30)
     df["published_fmt"] = (df["published_dt"] + _ist_offset).dt.strftime("%-d %B %Y, %I:%M %p IST").fillna(df["published"])
     # ── Drop all intermediate columns before caching ─────────────────────────
     # score_text: title+800char desc — large, only needed during scoring
