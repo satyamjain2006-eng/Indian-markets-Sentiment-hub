@@ -627,8 +627,11 @@ def _parse_llm_response(raw: str, n: int) -> list[dict] | None:
         results = json.loads(raw)
         if not isinstance(results, list):
             return None
-        while len(results) < n:
-            results.append({"score": 0.0, "label": "Neutral"})
+        # Don't pad with 0.0 — return None if response is truncated so
+        # caller falls back to VADER for the whole batch instead of silently
+        # giving Neutral to headlines Groq never actually scored
+        if len(results) < n:
+            return None
         return [{"score": float(r.get("score", 0.0)),
                  "label": r.get("label", "Neutral")} for r in results[:n]]
     except Exception:
