@@ -1347,15 +1347,18 @@ def fetch_news(company_name: str, symbol: str = "") -> pd.DataFrame:
         return articles
 
     all_articles = []
-    with ThreadPoolExecutor(max_workers=7) as executor:
-        futures = {executor.submit(fetch_source, src, url): src
-                   for src, url in rss_urls.items()}
-        # Hard 6s wall-clock deadline — don't wait for stragglers
-        for future in as_completed(futures, timeout=6):
-            try:
-                all_articles.extend(future.result())
-            except Exception:
-                pass
+    try:
+        with ThreadPoolExecutor(max_workers=7) as executor:
+            futures = {executor.submit(fetch_source, src, url): src
+                       for src, url in rss_urls.items()}
+            # Hard 6s wall-clock deadline — don't wait for stragglers
+            for future in as_completed(futures, timeout=6):
+                try:
+                    all_articles.extend(future.result())
+                except Exception:
+                    pass
+    except TimeoutError:
+        pass  # Some sources took too long — use whatever articles we collected
 
     if not all_articles:
         return pd.DataFrame()
