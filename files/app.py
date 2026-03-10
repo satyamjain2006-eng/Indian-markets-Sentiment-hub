@@ -45,7 +45,6 @@ st_autorefresh(interval=300_000, limit=None, key="autorefresh")
 
 # Read secrets once at module level — available everywhere including cached fns
 _GROQ_API_KEY: str = st.secrets.get("GROQ_API_KEY", "")
-_GROQ_LAST_ERROR: str = ""  # captures last Groq exception for display
 
 st.markdown("""
 <style>
@@ -693,12 +692,12 @@ def _score_via_groq(titles: list[str], asset_type: str) -> list[dict] | None:
         else:
             _dbg = f"✅ OK — scored {len(titles)} titles | asset: {asset_type} | key: {key_preview}"
             st.session_state["_groq_debug"] = _dbg
+            st.session_state.pop("_groq_last_error", None)  # clear any previous error
         return result
     except Exception as _e:
         _dbg = f"❌ Exception: {type(_e).__name__}: {_e} — key: {key_preview}"
         st.session_state["_groq_debug"] = _dbg
-        global _GROQ_LAST_ERROR
-        _GROQ_LAST_ERROR = f"{type(_e).__name__}: {_e}"
+        st.session_state["_groq_last_error"] = f"{type(_e).__name__}: {_e}"
         return None
 
 def _groq_score_batch(titles: list[str], asset_type: str = "stock") -> list[dict] | None:
@@ -1617,7 +1616,7 @@ def _yf_download_safe(ticker: str, **kwargs) -> pd.DataFrame:
     except Exception as _yfe:
         # YFRateLimitError — back off longer before retry
         _is_rate_limit = "rate" in str(_yfe).lower() or "429" in str(_yfe)
-        time.sleep(5.0 if _is_rate_limit else 1.0)
+        time.sleep(2.0 if _is_rate_limit else 0.5)
         try:
             return yf.download(ticker, progress=False, auto_adjust=True, **kwargs)
         except Exception:
@@ -1982,7 +1981,7 @@ def resolve_asset(asset_type: str, session_key: str, df_companies: pd.DataFrame)
                 )
             with col_clr:
                 if st.button("✕", key=f"{session_key}_clear", help="Clear selection",
-                             use_container_width=True):
+                             width="stretch"):
                     st.session_state[selected_key] = False
                     st.session_state[name_key]     = None
                     st.session_state[ticker_key]   = None
@@ -1999,7 +1998,7 @@ def resolve_asset(asset_type: str, session_key: str, df_companies: pd.DataFrame)
                     for _, row in results.iterrows():
                         if st.button(f"{row['name']}  [{row['symbol']}]",
                                      key=f"{session_key}_btn_{row['symbol']}",
-                                     use_container_width=True):
+                                     width="stretch"):
                             st.session_state[name_key]    = row["name"]
                             st.session_state[ticker_key]  = row["yf_ns"]
                             st.session_state[selected_key] = True
@@ -2058,7 +2057,7 @@ with st.sidebar:
                 )
             with col_clr:
                 if st.button("✕", key="primary_clear", help="Search again",
-                             use_container_width=True):
+                             width="stretch"):
                     st.session_state.primary_selected = False
                     # Reset to default based on exchange
                     _exch = st.session_state.get("_exchange_radio", "NSE (.NS)")
@@ -2085,7 +2084,7 @@ with st.sidebar:
                 else:
                     for _, row in results.iterrows():
                         if st.button(f"{row['name']}  [{row['symbol']}]",
-                                     key=f"btn_{row['symbol']}", use_container_width=True):
+                                     key=f"btn_{row['symbol']}", width="stretch"):
                             st.session_state.primary_name     = row["name"]
                             st.session_state.primary_ticker   = row["yf_ns"]
                             st.session_state.primary_symbol   = row["symbol"]
@@ -2197,7 +2196,7 @@ with st.sidebar:
                 fx_quote = st.selectbox("Quote", BASE_CURRENCIES, key="fx_quote",
                                          label_visibility="collapsed",
                                          index=BASE_CURRENCIES.index("INR"))
-            submitted = st.form_submit_button("Apply Custom Pair", use_container_width=True)
+            submitted = st.form_submit_button("Apply Custom Pair", width="stretch")
             if submitted and fx_base != fx_quote:
                 custom_ticker = f"{fx_quote}=X" if fx_base == "USD" else f"{fx_base}{fx_quote}=X"
                 st.session_state["fx_custom_name"]   = f"{fx_base}/{fx_quote}"
@@ -2271,73 +2270,48 @@ elif primary_name in {"Nifty 50","Sensex","Nifty Bank","Nifty Midcap 50"}:
 else:
     asset_type = "stock"
 
-with st.spinner(f"Loading {primary_name}…"):
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        fut_price = executor.submit(fetch_price, primary_ticker, period)
-        # get_news runs in main thread — has full access to _GROQ_API_KEY and session_state
-        _symbol = st.session_state.get("primary_symbol", "")
-        news_df = get_news(primary_name, _symbol)
-        price_df, market_closed = fut_price.result()
+# ── Price + news load in parallel — price is cached, news is the slow path ───
+# fetch_price is @st.cache_data so repeated calls are instant.
+# get_news is NOT cacheable with st.cache_data (needs Groq / session_state),
+# so we isolate it inside a @st.fragment. The fragment re-runs independently
+# after the main script finishes — the health check sees a rendered page
+# within ~5s (price chart), and news fills in a few seconds later.
 
-# ── KPI Row ───────────────────────────────────────────────────────────────────
-c1, c2, c3, c4, c5 = st.columns(5)
+with st.spinner(f"Loading {primary_name} price data…"):
+    try:
+        with ThreadPoolExecutor(max_workers=1) as _price_exec:
+            _price_future = _price_exec.submit(fetch_price, primary_ticker, period)
+            price_df, market_closed = _price_future.result(timeout=15)
+    except Exception:
+        price_df, market_closed = pd.DataFrame(), False
+
+# ── Derive price KPI values (no news needed) ──────────────────────────────────
 if not price_df.empty:
-    latest = float(price_df["Close"].iloc[-1])
-    prev   = float(price_df["Close"].iloc[-2]) if len(price_df) > 1 else latest
-    pct    = (latest - prev) / prev * 100
+    _latest = float(price_df["Close"].iloc[-1])
+    _prev   = float(price_df["Close"].iloc[-2]) if len(price_df) > 1 else _latest
+    _pct    = (_latest - _prev) / _prev * 100
 else:
-    latest = prev = pct = 0
+    _latest = _prev = _pct = 0
 
-# Recency-weighted average for KPI — recent articles count more
-if not news_df.empty and "recency_weight" in news_df.columns:
-    w = news_df["recency_weight"].fillna(0.35)
-    avg_sent = float((news_df["compound"] * w).sum() / w.sum()) if w.sum() > 0 else 0.0
-else:
-    avg_sent = news_df["compound"].mean() if not news_df.empty else 0
-overall  = label_from_score(avg_sent)
-sent_col = {"Positive":"positive","Negative":"negative","Neutral":"neutral"}[overall]
-pct_col  = "positive" if pct >= 0 else "negative"
-currency = "₹" if ".NS" in primary_ticker or ".BO" in primary_ticker else ""
+_pct_col  = "positive" if _pct >= 0 else "negative"
+_currency = "₹" if ".NS" in primary_ticker or ".BO" in primary_ticker else ""
 
-with c1:
-    st.markdown(f"<div class='kpi-card'><div class='kpi-value'>{currency}{latest:,.2f}</div><div class='kpi-label'>Last Price</div></div>", unsafe_allow_html=True)
-with c2:
-    st.markdown(f"<div class='kpi-card'><div class='kpi-value {pct_col}'>{pct:+.2f}%</div><div class='kpi-label'>Day Change</div></div>", unsafe_allow_html=True)
-with c3:
-    st.markdown(f"<div class='kpi-card'><div class='kpi-value {sent_col}'>{overall}</div><div class='kpi-label'>Sentiment</div></div>", unsafe_allow_html=True)
-with c4:
-    st.markdown(f"<div class='kpi-card'><div class='kpi-value'>{avg_sent:+.3f}</div><div class='kpi-label'>Avg Score</div></div>", unsafe_allow_html=True)
-with c5:
-    st.markdown(f"<div class='kpi-card'><div class='kpi-value'>{len(news_df) if not news_df.empty else 0}</div><div class='kpi-label'>Articles</div></div>", unsafe_allow_html=True)
+# ── KPI placeholders — price cols render now, sentiment cols fill in fragment ─
+_kpi_cols = st.columns(5)
+with _kpi_cols[0]:
+    st.markdown(f"<div class='kpi-card'><div class='kpi-value'>{_currency}{_latest:,.2f}</div><div class='kpi-label'>Last Price</div></div>", unsafe_allow_html=True)
+with _kpi_cols[1]:
+    st.markdown(f"<div class='kpi-card'><div class='kpi-value {_pct_col}'>{_pct:+.2f}%</div><div class='kpi-label'>Day Change</div></div>", unsafe_allow_html=True)
+# cols 2,3,4 (Sentiment / Avg Score / Articles) are rendered inside the fragment below
 
 st.markdown("<br>", unsafe_allow_html=True)
-
-# ── Method E: Momentum signal banner ─────────────────────────────────────────
-if not news_df.empty and "momentum_signal" in news_df.columns:
-    sig = news_df["momentum_signal"].iloc[0]
-    if sig == "bearish":
-        st.markdown(
-            "<div style='background:#2a0010;border:1px solid #ff4b6e;border-radius:10px;"
-            "padding:10px 18px;margin-bottom:12px;color:#ff4b6e;font-size:0.9rem'>"
-            "📉 <b>Momentum Alert:</b> Today's sentiment is significantly more negative "
-            "than yesterday — bearish shift detected in news flow.</div>",
-            unsafe_allow_html=True
-        )
-    elif sig == "bullish":
-        st.markdown(
-            "<div style='background:#002a1f;border:1px solid #00d4aa;border-radius:10px;"
-            "padding:10px 18px;margin-bottom:12px;color:#00d4aa;font-size:0.9rem'>"
-            "📈 <b>Momentum Alert:</b> Today's sentiment is significantly more positive "
-            "than yesterday — bullish shift detected in news flow.</div>",
-            unsafe_allow_html=True
-        )
 
 # ── Price Chart ───────────────────────────────────────────────────────────────
 st.markdown("### 📈 Price Chart + Indicators")
 if not price_df.empty:
     if market_closed:
         st.info("🔔 Market is currently closed — showing last 5 trading days of daily data.")
-    st.plotly_chart(build_price_chart(price_df, primary_ticker, period), use_container_width=True)
+    st.plotly_chart(build_price_chart(price_df, primary_ticker, period), width="stretch")
 else:
     st.warning("Price data unavailable. Check the ticker or try BSE (.BO) instead of NSE (.NS).")
 
@@ -2385,7 +2359,7 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
                         font=dict(size=12, color="#c0cce0"), bgcolor="rgba(0,0,0,0)"),
             hovermode="x unified",
         )
-        st.plotly_chart(fig_ca, use_container_width=True)
+        st.plotly_chart(fig_ca, width="stretch")
 
         try:
             def _to_returns(df, col, freq=None):
@@ -2748,161 +2722,205 @@ if compare_on and ca_name_a and ca_ticker_a and ca_name_b and ca_ticker_b:
     elif compare_on and (ca_name_a or ca_name_b):
         st.info("⬅️ Select both Asset A and Asset B in the sidebar to display the comparison.")
 
-# ── Sentiment Analysis ────────────────────────────────────────────────────────
-st.markdown("### 🧠 Sentiment Analysis")
-if not news_df.empty:
-    counts = news_df["label"].value_counts().to_dict()
-    fig_donut = go.Figure(go.Pie(
-        labels=["Positive","Negative","Neutral"],
-        values=[counts.get("Positive",0), counts.get("Negative",0), counts.get("Neutral",0)],
-        marker=dict(colors=["#00d4aa","#ff4b6e","#ffd166"],
-                    line=dict(color="#0e1320", width=2)),
-        hole=0.65,
-        textinfo="label+percent",
-        textfont=dict(size=13, color="#c0cce0"),
-        insidetextorientation="radial",
-        hovertemplate="%{label}: %{value} articles<extra></extra>",
-    ))
-    fig_donut.update_layout(
-        template="plotly_dark", paper_bgcolor="#0e1320",
-        margin=dict(l=10, r=10, t=20, b=10), height=320,
-        showlegend=True,
-        legend=dict(orientation="h", x=0.5, xanchor="center", y=-0.05,
-                    font=dict(size=12, color="#8892a4"), bgcolor="rgba(0,0,0,0)"),
-    )
+# ── News + Sentiment fragment — runs AFTER the health check passes ────────────
+# @st.fragment executes independently from the main script.
+# The price chart above is already rendered when this starts — no timeout risk.
+@st.fragment
+def _news_and_sentiment_section(_primary_name, _primary_ticker, _asset_type, _kpi_cols):
+    _symbol = st.session_state.get("primary_symbol", "")
 
-    tab1, tab2 = st.tabs(["🍩 Sentiment Breakdown", "📅 Daily Trend"])
-    with tab1:
-        st.plotly_chart(fig_donut, use_container_width=True)
-    with tab2:
-        st.plotly_chart(build_sentiment_trend(news_df), use_container_width=True)
+    with st.spinner(f"Loading news & sentiment for {_primary_name}…"):
+        news_df = get_news(_primary_name, _symbol)
 
-# ── News Feed ─────────────────────────────────────────────────────────────────
-news_keyword = get_news_keyword(primary_name)
-# Show which scorer was actually used — Groq or VADER fallback
-_scorer_used  = news_df["scorer"].iloc[0] if not news_df.empty and "scorer" in news_df.columns else "VADER + TextBlob"
-scorer_label  = _scorer_used
-scorer_color = "#22d3ee" if "Groq" in _scorer_used else "#a78bfa"
-scorer_badge  = f"<span style='font-size:0.72rem;background:#1a2035;border:1px solid {scorer_color};color:{scorer_color};padding:2px 8px;border-radius:20px;margin-left:8px'>{scorer_label}</span>"
+    # ── Fill in the 3 sentiment KPI cards (cols 2, 3, 4) ─────────────────────
+    if not news_df.empty and "recency_weight" in news_df.columns:
+        w = news_df["recency_weight"].fillna(0.35)
+        avg_sent = float((news_df["compound"] * w).sum() / w.sum()) if w.sum() > 0 else 0.0
+    else:
+        avg_sent = news_df["compound"].mean() if not news_df.empty else 0.0
+    overall  = label_from_score(avg_sent)
+    sent_col = {"Positive":"positive","Negative":"negative","Neutral":"neutral"}[overall]
 
-# ── Groq key check ───────────────────────────────────────────────────────────
-_groq_key = st.secrets.get("GROQ_API_KEY", "")
-if not _groq_key:
-    st.warning("⚠️ GROQ_API_KEY not found in st.secrets — using VADER+TextBlob fallback. "
-               "Add it in Streamlit Cloud → App Settings → Secrets.")
-elif _GROQ_LAST_ERROR:
-    st.warning(f"⚠️ Groq failed (using VADER fallback): `{_GROQ_LAST_ERROR}`")
-st.markdown(f"### 🗞️ Latest News &nbsp;<span style='font-size:0.8rem;color:#5c7cfa'>searching: '{news_keyword}'</span>{scorer_badge}",
-            unsafe_allow_html=True)
+    with _kpi_cols[2]:
+        st.markdown(f"<div class='kpi-card'><div class='kpi-value {sent_col}'>{overall}</div><div class='kpi-label'>Sentiment</div></div>", unsafe_allow_html=True)
+    with _kpi_cols[3]:
+        st.markdown(f"<div class='kpi-card'><div class='kpi-value'>{avg_sent:+.3f}</div><div class='kpi-label'>Avg Score</div></div>", unsafe_allow_html=True)
+    with _kpi_cols[4]:
+        st.markdown(f"<div class='kpi-card'><div class='kpi-value'>{len(news_df) if not news_df.empty else 0}</div><div class='kpi-label'>Articles</div></div>", unsafe_allow_html=True)
 
-if not news_df.empty:
-    n_articles = len(news_df)
-
-    # ── Low article count warning ─────────────────────────────────────────────
-    if asset_type == "stock" and n_articles < 5:
-        st.markdown(
-            f"<div style='background:#1a1a2e;border:1px solid #f59e0b;border-radius:8px;"
-            f"padding:10px 14px;margin-bottom:12px;font-size:0.82rem;color:#f59e0b;'>"
-            f"⚠️ <b>Only {n_articles} article{'s' if n_articles != 1 else ''} found</b> for "
-            f"<b>{primary_name}</b>. Coverage may be limited — "
-            f"this stock may have low media visibility or no recent news. "
-            f"Sentiment score is based on fewer data points and may be less reliable."
-            f"</div>",
-            unsafe_allow_html=True
-        )
-    elif asset_type == "stock" and n_articles < 10:
-        st.markdown(
-            f"<div style='background:#1a1a2e;border:1px solid #4a5568;border-radius:8px;"
-            f"padding:8px 14px;margin-bottom:12px;font-size:0.80rem;color:#8892a4;'>"
-            f"ℹ️ {n_articles} articles found — sentiment based on limited recent coverage."
-            f"</div>",
-            unsafe_allow_html=True
-        )
-
-    filt = st.radio("Filter", ["All","Positive","Negative","Neutral"],
-                    horizontal=True, label_visibility="collapsed")
-    filtered = news_df if filt == "All" else news_df[news_df["label"] == filt]
-
-    if filtered.empty and filt != "All":
-        st.markdown(
-            f"<div style='color:#8892a4;font-size:0.85rem;padding:12px;text-align:center;'>"
-            f"No {filt.lower()} articles found in current results.</div>",
-            unsafe_allow_html=True
-        )
-
-    for _, row in filtered.iterrows():
-        bc = badge_class(row["label"])
-        _scorer = str(row.get("scorer", ""))
-        if "Groq" in _scorer:
-            score_detail = f"Groq:{row['compound']:+.2f}"
-        else:
-            v_score = row.get("vader_score", row["compound"])
-            t_score = row.get("textblob_score", 0.0)
-            score_detail = f"V:{v_score:+.2f} T:{t_score:+.2f}"
-        st.markdown(f"""
-        <div class='news-item'>
-            <div class='news-title'>
-                <a href='{row["link"]}' target='_blank' style='color:inherit;text-decoration:none'>
-                    {row['title']}
-                </a>
-                <span class='badge {bc}'>{row['label']} {row['compound']:+.3f}</span>
-            </div>
-            <div class='news-meta'>📡 {row['source']} &nbsp;|&nbsp; {score_detail} &nbsp;|&nbsp; {row['published_fmt']}</div>
-        </div>
-        """, unsafe_allow_html=True)
-else:
-    if asset_type == "stock":
-        # ── Zero stock articles — show banner + general market news ──────────
-        st.markdown(
-            f"<div style='background:#1a1a2e;border:1px solid #ff4b6e;border-radius:8px;"
-            f"padding:14px;margin-bottom:16px;'>"
-            f"<div style='display:flex;align-items:center;gap:10px;'>"
-            f"<span style='font-size:1.4rem;'>📭</span>"
-            f"<div>"
-            f"<div style='color:#ff4b6e;font-weight:600;margin-bottom:2px;'>No articles found for {primary_name}</div>"
-            f"<div style='color:#8892a4;font-size:0.82rem;'>This stock may have no recent news coverage. "
-            f"Try searching with a shorter name (e.g. 'Adani' instead of 'Adani Enterprises Limited').<br>"
-            f"Showing general Indian market news below.</div>"
-            f"</div></div>"
-            f"</div>",
-            unsafe_allow_html=True
-        )
-        # Fetch general market news as fallback
-        with st.spinner("Loading general market news…"):
-            general_df = get_news("Nifty 50", "^NSEI")
-        if not general_df.empty:
+    # ── Method E: Momentum signal banner ─────────────────────────────────────
+    if not news_df.empty and "momentum_signal" in news_df.columns:
+        sig = news_df["momentum_signal"].iloc[0]
+        if sig == "bearish":
             st.markdown(
-                "<div style='color:#8892a4;font-size:0.82rem;margin-bottom:10px;"
-                "padding:6px 10px;background:#0e1320;border-radius:6px;"
-                "border-left:3px solid #4a5568;'>"
-                "📰 General Indian market news</div>",
+                "<div style='background:#2a0010;border:1px solid #ff4b6e;border-radius:10px;"
+                "padding:10px 18px;margin-bottom:12px;color:#ff4b6e;font-size:0.9rem'>"
+                "📉 <b>Momentum Alert:</b> Today's sentiment is significantly more negative "
+                "than yesterday — bearish shift detected in news flow.</div>",
                 unsafe_allow_html=True
             )
-            for _, row in general_df.head(10).iterrows():
-                bc = badge_class(row["label"])
-                _scorer = str(row.get("scorer", ""))
-                if "Groq" in _scorer:
-                    score_detail = f"Groq:{row['compound']:+.2f}"
-                else:
-                    v_score = row.get("vader_score", row["compound"])
-                    t_score = row.get("textblob_score", 0.0)
-                    score_detail = f"V:{v_score:+.2f} T:{t_score:+.2f}"
-                st.markdown(f"""
-                <div class='news-item'>
-                    <div class='news-title'>
-                        <a href='{row["link"]}' target='_blank' style='color:inherit;text-decoration:none'>
-                            {row['title']}
-                        </a>
-                        <span class='badge {bc}'>{row['label']} {row['compound']:+.3f}</span>
-                    </div>
-                    <div class='news-meta'>📡 {row['source']} &nbsp;|&nbsp; {score_detail} &nbsp;|&nbsp; {row['published_fmt']}</div>
-                </div>
-                """, unsafe_allow_html=True)
-    else:
-        st.info("No news found. Try a different asset or check your connection.")
+        elif sig == "bullish":
+            st.markdown(
+                "<div style='background:#002a1f;border:1px solid #00d4aa;border-radius:10px;"
+                "padding:10px 18px;margin-bottom:12px;color:#00d4aa;font-size:0.9rem'>"
+                "📈 <b>Momentum Alert:</b> Today's sentiment is significantly more positive "
+                "than yesterday — bullish shift detected in news flow.</div>",
+                unsafe_allow_html=True
+            )
 
-# ── Raw Data ──────────────────────────────────────────────────────────────────
-if not news_df.empty:
-    with st.expander("🔍 Raw sentiment data"):
-        cols = ["source","title","label","compound","vader_score","textblob_score"]
-        st.dataframe(news_df[cols], use_container_width=True)
+    # ── Sentiment Analysis ────────────────────────────────────────────────────
+    st.markdown("### 🧠 Sentiment Analysis")
+    if not news_df.empty:
+        counts = news_df["label"].value_counts().to_dict()
+        fig_donut = go.Figure(go.Pie(
+            labels=["Positive","Negative","Neutral"],
+            values=[counts.get("Positive",0), counts.get("Negative",0), counts.get("Neutral",0)],
+            marker=dict(colors=["#00d4aa","#ff4b6e","#ffd166"],
+                        line=dict(color="#0e1320", width=2)),
+            hole=0.65,
+            textinfo="label+percent",
+            textfont=dict(size=13, color="#c0cce0"),
+            insidetextorientation="radial",
+            hovertemplate="%{label}: %{value} articles<extra></extra>",
+        ))
+        fig_donut.update_layout(
+            template="plotly_dark", paper_bgcolor="#0e1320",
+            margin=dict(l=10, r=10, t=20, b=10), height=320,
+            showlegend=True,
+            legend=dict(orientation="h", x=0.5, xanchor="center", y=-0.05,
+                        font=dict(size=12, color="#8892a4"), bgcolor="rgba(0,0,0,0)"),
+        )
+        tab1, tab2 = st.tabs(["🍩 Sentiment Breakdown", "📅 Daily Trend"])
+        with tab1:
+            st.plotly_chart(fig_donut, width="stretch")
+        with tab2:
+            st.plotly_chart(build_sentiment_trend(news_df), width="stretch")
+
+    # ── News Feed ─────────────────────────────────────────────────────────────
+    news_keyword = get_news_keyword(_primary_name)
+    _scorer_used  = news_df["scorer"].iloc[0] if not news_df.empty and "scorer" in news_df.columns else "VADER + TextBlob"
+    scorer_color  = "#22d3ee" if "Groq" in _scorer_used else "#a78bfa"
+    scorer_badge  = (f"<span style='font-size:0.72rem;background:#1a2035;border:1px solid {scorer_color};"
+                     f"color:{scorer_color};padding:2px 8px;border-radius:20px;margin-left:8px'>{_scorer_used}</span>")
+
+    # ── Groq key check ────────────────────────────────────────────────────────
+    _groq_key = st.secrets.get("GROQ_API_KEY", "")
+    if not _groq_key:
+        st.warning("⚠️ GROQ_API_KEY not found in st.secrets — using VADER+TextBlob fallback. "
+                   "Add it in Streamlit Cloud → App Settings → Secrets.")
+    elif st.session_state.get("_groq_last_error"):
+        st.warning(f"⚠️ Groq failed (using VADER fallback): `{st.session_state['_groq_last_error']}`")
+
+    st.markdown(f"### 🗞️ Latest News &nbsp;<span style='font-size:0.8rem;color:#5c7cfa'>searching: '{news_keyword}'</span>{scorer_badge}",
+                unsafe_allow_html=True)
+
+    if not news_df.empty:
+        n_articles = len(news_df)
+        if _asset_type == "stock" and n_articles < 5:
+            st.markdown(
+                f"<div style='background:#1a1a2e;border:1px solid #f59e0b;border-radius:8px;"
+                f"padding:10px 14px;margin-bottom:12px;font-size:0.82rem;color:#f59e0b;'>"
+                f"⚠️ <b>Only {n_articles} article{'s' if n_articles != 1 else ''} found</b> for "
+                f"<b>{_primary_name}</b>. Coverage may be limited — "
+                f"this stock may have low media visibility or no recent news. "
+                f"Sentiment score is based on fewer data points and may be less reliable."
+                f"</div>",
+                unsafe_allow_html=True
+            )
+        elif _asset_type == "stock" and n_articles < 10:
+            st.markdown(
+                f"<div style='background:#1a1a2e;border:1px solid #4a5568;border-radius:8px;"
+                f"padding:8px 14px;margin-bottom:12px;font-size:0.80rem;color:#8892a4;'>"
+                f"ℹ️ {n_articles} articles found — sentiment based on limited recent coverage."
+                f"</div>",
+                unsafe_allow_html=True
+            )
+
+        filt = st.radio("Filter", ["All","Positive","Negative","Neutral"],
+                        horizontal=True, label_visibility="collapsed")
+        filtered = news_df if filt == "All" else news_df[news_df["label"] == filt]
+
+        if filtered.empty and filt != "All":
+            st.markdown(
+                f"<div style='color:#8892a4;font-size:0.85rem;padding:12px;text-align:center;'>"
+                f"No {filt.lower()} articles found in current results.</div>",
+                unsafe_allow_html=True
+            )
+
+        for _, row in filtered.iterrows():
+            bc = badge_class(row["label"])
+            _scorer = str(row.get("scorer", ""))
+            if "Groq" in _scorer:
+                score_detail = f"Groq:{row['compound']:+.2f}"
+            else:
+                v_score = row.get("vader_score", row["compound"])
+                t_score = row.get("textblob_score", 0.0)
+                score_detail = f"V:{v_score:+.2f} T:{t_score:+.2f}"
+            st.markdown(f"""
+            <div class='news-item'>
+                <div class='news-title'>
+                    <a href='{row["link"]}' target='_blank' style='color:inherit;text-decoration:none'>
+                        {row['title']}
+                    </a>
+                    <span class='badge {bc}'>{row['label']} {row['compound']:+.3f}</span>
+                </div>
+                <div class='news-meta'>📡 {row['source']} &nbsp;|&nbsp; {score_detail} &nbsp;|&nbsp; {row['published_fmt']}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with st.expander("🔍 Raw sentiment data"):
+            cols = ["source","title","label","compound","vader_score","textblob_score"]
+            st.dataframe(news_df[cols], width="stretch")
+
+    else:
+        if _asset_type == "stock":
+            st.markdown(
+                f"<div style='background:#1a1a2e;border:1px solid #ff4b6e;border-radius:8px;"
+                f"padding:14px;margin-bottom:16px;'>"
+                f"<div style='display:flex;align-items:center;gap:10px;'>"
+                f"<span style='font-size:1.4rem;'>📭</span>"
+                f"<div>"
+                f"<div style='color:#ff4b6e;font-weight:600;margin-bottom:2px;'>No articles found for {_primary_name}</div>"
+                f"<div style='color:#8892a4;font-size:0.82rem;'>This stock may have no recent news coverage. "
+                f"Try searching with a shorter name (e.g. 'Adani' instead of 'Adani Enterprises Limited').<br>"
+                f"Showing general Indian market news below.</div>"
+                f"</div></div>"
+                f"</div>",
+                unsafe_allow_html=True
+            )
+            with st.spinner("Loading general market news…"):
+                general_df = get_news("Nifty 50", "^NSEI")
+            if not general_df.empty:
+                st.markdown(
+                    "<div style='color:#8892a4;font-size:0.82rem;margin-bottom:10px;"
+                    "padding:6px 10px;background:#0e1320;border-radius:6px;"
+                    "border-left:3px solid #4a5568;'>"
+                    "📰 General Indian market news</div>",
+                    unsafe_allow_html=True
+                )
+                for _, row in general_df.head(10).iterrows():
+                    bc = badge_class(row["label"])
+                    _scorer = str(row.get("scorer", ""))
+                    if "Groq" in _scorer:
+                        score_detail = f"Groq:{row['compound']:+.2f}"
+                    else:
+                        v_score = row.get("vader_score", row["compound"])
+                        t_score = row.get("textblob_score", 0.0)
+                        score_detail = f"V:{v_score:+.2f} T:{t_score:+.2f}"
+                    st.markdown(f"""
+                    <div class='news-item'>
+                        <div class='news-title'>
+                            <a href='{row["link"]}' target='_blank' style='color:inherit;text-decoration:none'>
+                                {row['title']}
+                            </a>
+                            <span class='badge {bc}'>{row['label']} {row['compound']:+.3f}</span>
+                        </div>
+                        <div class='news-meta'>📡 {row['source']} &nbsp;|&nbsp; {score_detail} &nbsp;|&nbsp; {row['published_fmt']}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+        else:
+            st.info("No news found. Try a different asset or check your connection.")
+
+
+# ── Invoke the fragment — renders asynchronously after health check passes ────
+_news_and_sentiment_section(primary_name, primary_ticker, asset_type, _kpi_cols)
